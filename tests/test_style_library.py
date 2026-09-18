@@ -35,6 +35,8 @@ def test_new_style_pack_contains_all_roles_and_independent_font_slots() -> None:
     assert pack.roles["body-paragraph"]["font"]["chinese_font"] == "仿宋"
     assert pack.roles["body-paragraph"]["font"]["western_font"] == "Times New Roman"
     assert pack.roles["body-paragraph"]["paragraph"]["line_spacing_pt"] == 29
+    assert pack.roles["body-paragraph"]["paragraph"]["first_line_indent_unit"] == "character"
+    assert pack.roles["body-paragraph"]["paragraph"]["line_spacing_rule"] == "exact"
 
 
 def test_legacy_style_pack_is_migrated_without_losing_custom_values(tmp_path) -> None:
@@ -59,4 +61,49 @@ def test_legacy_style_pack_is_migrated_without_losing_custom_values(tmp_path) ->
     assert migrated.roles["document-title"]["font"]["chinese_font"] == "黑体"
     assert migrated.roles["document-title"]["font"]["size_pt"] == 24
     assert migrated.roles["body-paragraph"]["paragraph"]["first_line_indent_pt"] == 28
+    assert migrated.roles["body-paragraph"]["paragraph"]["first_line_indent_unit"] == "pt"
     assert migrated.roles["body-table"] == default_roles()["body-table"]
+
+
+def test_style_pack_migrates_indent_units_and_line_spacing_modes() -> None:
+    migrated = StylePack.model_validate(
+        {
+            "id": "units",
+            "name": "单位测试",
+            "format_id": "docx",
+            "version": 1,
+            "created_at": "2026-09-18T00:00:00Z",
+            "roles": {
+                "body-paragraph": {
+                    "first_line_indent_pt": 28,
+                    "first_line_indent_unit": "cm",
+                    "line_spacing_rule": "multiple",
+                    "line_spacing_multiple": 1.5,
+                }
+            },
+        }
+    )
+
+    paragraph = migrated.roles["body-paragraph"]["paragraph"]
+    assert paragraph["first_line_indent_unit"] == "cm"
+    assert paragraph["line_spacing_rule"] == "multiple"
+    assert paragraph["line_spacing_multiple"] == 1.5
+
+
+def test_multiple_line_spacing_without_a_value_uses_the_editor_default() -> None:
+    migrated = StylePack.model_validate(
+        {
+            "id": "multiple",
+            "name": "多倍行距",
+            "format_id": "docx",
+            "version": 1,
+            "created_at": "2026-09-18T00:00:00Z",
+            "roles": {
+                "body-paragraph": {
+                    "paragraph": {"line_spacing_rule": "multiple"},
+                }
+            },
+        }
+    )
+
+    assert migrated.roles["body-paragraph"]["paragraph"]["line_spacing_multiple"] == 1.5

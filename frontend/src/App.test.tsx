@@ -47,6 +47,9 @@ describe('App', () => {
 
     expect(await screen.findByLabelText('段落正文中文字体')).toHaveValue('宋体')
     expect(screen.getByLabelText('文档标题中文字体')).toHaveValue('黑体')
+    expect(screen.getByLabelText('文档标题字号').tagName).toBe('SELECT')
+    expect(screen.getByLabelText('文档标题字号')).toHaveValue('22')
+    expect(screen.getByLabelText('段落正文首行缩进单位')).toHaveValue('character')
     expect(screen.getByRole('button', { name: '保存样式新版本' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收起设置' })).toBeInTheDocument()
     expect(screen.getByLabelText('Markdown 工作副本')).toBeInTheDocument()

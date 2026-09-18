@@ -6,7 +6,7 @@ from typing import Any
 
 from docx.document import Document as DocxDocument
 from docx.enum.style import WD_STYLE_TYPE
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
@@ -77,6 +77,7 @@ def _apply_role(style: Any, role_data: dict[str, Any], style_type: WD_STYLE_TYPE
     size = font_data.get("size_pt")
     if isinstance(size, (int, float)):
         font.size = Pt(size)
+    font_size_pt = float(size) if isinstance(size, (int, float)) else 16.0
     for key in ("bold", "italic"):
         value = font_data.get(key)
         if isinstance(value, bool):
@@ -88,10 +89,10 @@ def _apply_role(style: Any, role_data: dict[str, Any], style_type: WD_STYLE_TYPE
 
     if style_type != WD_STYLE_TYPE.CHARACTER:
         paragraph_data = role_data.get("paragraph", {})
-        _apply_paragraph(style, paragraph_data)
+        _apply_paragraph(style, paragraph_data, font_size_pt)
 
 
-def _apply_paragraph(style: Any, data: dict[str, Any]) -> None:
+def _apply_paragraph(style: Any, data: dict[str, Any], font_size_pt: float) -> None:
     paragraph = style.paragraph_format
     alignments = {
         "left": WD_ALIGN_PARAGRAPH.LEFT,
@@ -111,13 +112,63 @@ def _apply_paragraph(style: Any, data: dict[str, Any]) -> None:
         value = data.get(key)
         if isinstance(value, (int, float)):
             setattr(paragraph, attribute, Pt(value))
-    line_spacing = data.get("line_spacing_pt")
-    if isinstance(line_spacing, (int, float)):
-        paragraph.line_spacing = Pt(line_spacing)
+    _apply_indent_units(style, data, font_size_pt)
+    _apply_line_spacing(paragraph, data)
     for attribute in ("keep_with_next", "widow_control", "page_break_before"):
         value = data.get(attribute)
         if isinstance(value, bool):
             setattr(paragraph, attribute, value)
+
+
+def _apply_indent_units(style: Any, data: dict[str, Any], font_size_pt: float) -> None:
+    ppr = style._element.get_or_add_pPr()
+    indent = ppr.find(qn("w:ind"))
+    if indent is None:
+        indent = OxmlElement("w:ind")
+        ppr.append(indent)
+    for value_key, unit_key, chars_attr, points_attr in (
+        ("first_line_indent_pt", "first_line_indent_unit", "w:firstLineChars", "w:firstLine"),
+        ("left_indent_pt", "left_indent_unit", "w:leftChars", "w:left"),
+        ("right_indent_pt", "right_indent_unit", "w:rightChars", "w:right"),
+    ):
+        value = data.get(value_key)
+        if not isinstance(value, (int, float)):
+            continue
+        if data.get(unit_key, "pt") == "character":
+            characters = round(float(value) / max(font_size_pt, 0.01) * 100)
+            indent.set(qn(chars_attr), str(characters))
+            indent.attrib.pop(qn(points_attr), None)
+        else:
+            indent.attrib.pop(qn(chars_attr), None)
+
+
+def _apply_line_spacing(paragraph: Any, data: dict[str, Any]) -> None:
+    rule = data.get("line_spacing_rule", "exact")
+    if rule == "multiple":
+        multiple = data.get("line_spacing_multiple")
+        if not isinstance(multiple, (int, float)):
+            multiple = 1.0
+        paragraph.line_spacing = float(multiple)
+        paragraph.line_spacing_rule = WD_LINE_SPACING.MULTIPLE
+        return
+
+    line_spacing = data.get("line_spacing_pt")
+    if not isinstance(line_spacing, (int, float)):
+        return
+    paragraph.line_spacing = Pt(line_spacing)
+    rule_map = {
+        "minimum": WD_LINE_SPACING.AT_LEAST,
+        "exact": WD_LINE_SPACING.EXACTLY,
+    }
+    if rule in rule_map:
+        paragraph.line_spacing_rule = rule_map[rule]
+        return
+    if rule == "maximum":
+        # OOXML has no maximum rule. ``auto`` keeps the requested twip value
+        # while allowing Word/WPS to resolve the line box from its font.
+        spacing = paragraph._element.get_or_add_pPr().find(qn("w:spacing"))
+        if spacing is not None:
+            spacing.set(qn("w:lineRule"), "auto")
 
 
 def _set_doc_defaults(document: DocxDocument, role_data: dict[str, Any]) -> None:

@@ -1,5 +1,6 @@
 import zipfile
 
+import pytest
 from docx import Document
 
 from doc_converter.renderer import render_docx, resolve_pandoc
@@ -147,3 +148,72 @@ def test_renderer_keeps_selected_chinese_and_western_fonts_in_ooxml(tmp_path) ->
     assert 'w:ascii="黑体"' in body_style
     assert 'w:hAnsi="黑体"' in body_style
     assert 'w:cs="黑体"' in body_style
+
+
+@pytest.mark.parametrize(
+    ("rule", "expected_line", "expected_rule"),
+    [
+        ("maximum", "580", "auto"),
+        ("minimum", "580", "atLeast"),
+        ("exact", "580", "exact"),
+        ("multiple", "360", "auto"),
+    ],
+)
+def test_renderer_writes_line_spacing_rule_and_value_to_ooxml(tmp_path, rule, expected_line, expected_rule) -> None:
+    base = create_style_pack(name="行距测试", format_id="docx")
+    roles = {key: dict(value) for key, value in base.roles.items()}
+    roles["body-paragraph"] = {
+        **roles["body-paragraph"],
+        "paragraph": {
+            **roles["body-paragraph"]["paragraph"],
+            "line_spacing_rule": rule,
+            "line_spacing_multiple": 1.5 if rule == "multiple" else None,
+        },
+    }
+    pack = base.model_copy(update={"roles": roles})
+    output_path = tmp_path / "line-spacing.docx"
+
+    render_docx(
+        markdown="正文内容。",
+        style_pack=pack,
+        output_path=output_path,
+        work_dir=tmp_path / "work",
+    )
+
+    with zipfile.ZipFile(output_path) as archive:
+        styles_xml = archive.read("word/styles.xml").decode("utf-8")
+    body_style = styles_xml[styles_xml.index('w:styleId="DC_BodyParagraph"') :]
+    assert f'w:line="{expected_line}"' in body_style
+    assert f'w:lineRule="{expected_rule}"' in body_style
+
+
+def test_renderer_writes_character_indent_attributes_to_ooxml(tmp_path) -> None:
+    base = create_style_pack(name="字符缩进测试", format_id="docx")
+    roles = {key: dict(value) for key, value in base.roles.items()}
+    roles["body-paragraph"] = {
+        **roles["body-paragraph"],
+        "paragraph": {
+            **roles["body-paragraph"]["paragraph"],
+            "first_line_indent_pt": 32,
+            "first_line_indent_unit": "character",
+            "left_indent_pt": 16,
+            "left_indent_unit": "character",
+        },
+    }
+    pack = base.model_copy(update={"roles": roles})
+    output_path = tmp_path / "character-indent.docx"
+
+    render_docx(
+        markdown="正文内容。",
+        style_pack=pack,
+        output_path=output_path,
+        work_dir=tmp_path / "work",
+    )
+
+    with zipfile.ZipFile(output_path) as archive:
+        styles_xml = archive.read("word/styles.xml").decode("utf-8")
+    body_style = styles_xml[styles_xml.index('w:styleId="DC_BodyParagraph"') :]
+    assert 'w:firstLineChars="200"' in body_style
+    assert 'w:leftChars="100"' in body_style
+    assert 'w:firstLine="640"' not in body_style
+    assert 'w:left="320"' not in body_style

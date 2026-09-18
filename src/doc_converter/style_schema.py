@@ -28,6 +28,9 @@ ROLE_KEYS = (
     "page",
 )
 
+IndentUnit = Literal["character", "pt", "cm"]
+LineSpacingRule = Literal["maximum", "minimum", "exact", "multiple"]
+
 
 class FontSpec(BaseModel):
     """Font slots that are written to all relevant Word font attributes."""
@@ -49,11 +52,16 @@ class ParagraphSpec(BaseModel):
 
     alignment: Literal["left", "center", "right", "justify"] = "left"
     first_line_indent_pt: float = 0
+    first_line_indent_unit: IndentUnit = "character"
     left_indent_pt: float = 0
+    left_indent_unit: IndentUnit = "character"
     right_indent_pt: float = 0
+    right_indent_unit: IndentUnit = "character"
     space_before_pt: float = 0
     space_after_pt: float = 0
     line_spacing_pt: float | None = None
+    line_spacing_rule: LineSpacingRule = "exact"
+    line_spacing_multiple: float | None = None
     keep_with_next: bool = False
     widow_control: bool = True
     page_break_before: bool = False
@@ -181,15 +189,22 @@ def _font_from_legacy(value: dict[str, Any], fallback: dict[str, Any]) -> dict[s
 
 def _paragraph_from_legacy(value: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
     paragraph = dict(fallback.get("paragraph", {}))
-    if isinstance(value.get("paragraph"), dict):
-        paragraph.update(value["paragraph"])
+    raw_nested = value.get("paragraph")
+    nested: dict[str, Any] = raw_nested if isinstance(raw_nested, dict) else {}
+    paragraph.update(nested)
+    source_keys = set(value) | set(nested)
     aliases = {
         "first_line_indent_pt": "first_line_indent_pt",
+        "first_line_indent_unit": "first_line_indent_unit",
         "left_indent_pt": "left_indent_pt",
+        "left_indent_unit": "left_indent_unit",
         "right_indent_pt": "right_indent_pt",
+        "right_indent_unit": "right_indent_unit",
         "space_before_pt": "space_before_pt",
         "space_after_pt": "space_after_pt",
         "line_spacing_pt": "line_spacing_pt",
+        "line_spacing_rule": "line_spacing_rule",
+        "line_spacing_multiple": "line_spacing_multiple",
         "alignment": "alignment",
         "keep_with_next": "keep_with_next",
         "widow_control": "widow_control",
@@ -198,7 +213,24 @@ def _paragraph_from_legacy(value: dict[str, Any], fallback: dict[str, Any]) -> d
     for source_key, target_key in aliases.items():
         if source_key in value:
             paragraph[target_key] = value[source_key]
-    return ParagraphSpec(**paragraph).model_dump()
+    for source_key, target_key in aliases.items():
+        if source_key in nested:
+            paragraph[target_key] = nested[source_key]
+
+    # Legacy ``*_indent_pt`` fields were always point values. New packs carry
+    # an explicit unit; only infer points when the unit is absent.
+    for value_key, unit_key in (
+        ("first_line_indent_pt", "first_line_indent_unit"),
+        ("left_indent_pt", "left_indent_unit"),
+        ("right_indent_pt", "right_indent_unit"),
+    ):
+        if value_key in source_keys and unit_key not in source_keys:
+            paragraph[unit_key] = "pt"
+
+    normalized = ParagraphSpec(**paragraph).model_dump()
+    if normalized["line_spacing_rule"] == "multiple" and normalized["line_spacing_multiple"] is None:
+        normalized["line_spacing_multiple"] = 1.5
+    return normalized
 
 
 def migrate_roles(raw_roles: Any) -> dict[str, dict[str, Any]]:
