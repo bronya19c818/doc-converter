@@ -1,4 +1,7 @@
-from doc_converter.style_library import StyleLibrary, create_style_pack
+import json
+
+from doc_converter.style_library import StyleLibrary, StylePack, create_style_pack
+from doc_converter.style_schema import ROLE_KEYS, default_roles
 
 
 def test_saved_style_pack_is_versioned_and_listed(tmp_path) -> None:
@@ -22,3 +25,38 @@ def test_saving_existing_pack_creates_a_new_immutable_version(tmp_path) -> None:
     assert second.version == 2
     assert library.get(first.id, 1).name == "正式报告"
     assert library.get(second.id, 2).name == "正式报告（调整）"
+
+
+def test_new_style_pack_contains_all_roles_and_independent_font_slots() -> None:
+    pack = create_style_pack(name="模板级报告", format_id="docx")
+
+    assert set(pack.roles) == set(ROLE_KEYS)
+    assert pack.schema_version == "docx-style/v2"
+    assert pack.roles["body-paragraph"]["font"]["chinese_font"] == "仿宋"
+    assert pack.roles["body-paragraph"]["font"]["western_font"] == "Times New Roman"
+    assert pack.roles["body-paragraph"]["paragraph"]["line_spacing_pt"] == 29
+
+
+def test_legacy_style_pack_is_migrated_without_losing_custom_values(tmp_path) -> None:
+    legacy = {
+        "id": "legacy",
+        "name": "旧版",
+        "format_id": "docx",
+        "version": 1,
+        "created_at": "2026-09-18T00:00:00Z",
+        "roles": {
+            "document-title": {"font_name": "黑体", "font_size_pt": 24, "bold": True},
+            "heading-1": {"font_name": "楷体", "font_size_pt": 16, "bold": True},
+            "body": {"font_name": "仿宋", "font_size_pt": 14, "first_line_indent_pt": 28},
+        },
+    }
+    path = tmp_path / "legacy.json"
+    path.write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
+
+    migrated = StylePack.model_validate_json(path.read_text(encoding="utf-8"))
+
+    assert set(migrated.roles) == set(ROLE_KEYS)
+    assert migrated.roles["document-title"]["font"]["chinese_font"] == "黑体"
+    assert migrated.roles["document-title"]["font"]["size_pt"] == 24
+    assert migrated.roles["body-paragraph"]["paragraph"]["first_line_indent_pt"] == 28
+    assert migrated.roles["body-table"] == default_roles()["body-table"]

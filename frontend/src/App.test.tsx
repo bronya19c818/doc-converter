@@ -20,10 +20,10 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: 'Doc Converter' })).toBeInTheDocument()
     expect(screen.getByText('本地转换，不调用 AI，也不上传文档。')).toBeInTheDocument()
     expect(await screen.findByLabelText('选择 Markdown 文件')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '文档预览' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'DOCX 预览' })).toBeInTheDocument()
   })
 
-  it('exposes editable semantic DOCX style fields for the selected pack', async () => {
+  it('exposes the A-layout workspace and collapsible settings', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -35,9 +35,9 @@ describe('App', () => {
             format_id: 'docx',
             version: 1,
             roles: {
-              'document-title': { font_name: '黑体', font_size_pt: 22 },
-              'heading-1': { font_name: '黑体', font_size_pt: 16 },
-              body: { font_name: '宋体', font_size_pt: 12, first_line_indent_pt: 24 },
+              'document-title': { role_type: 'paragraph', font: { chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 22, bold: true }, paragraph: { alignment: 'center' } },
+              'heading-1': { role_type: 'paragraph', font: { chinese_font: '黑体', western_font: 'Arial', size_pt: 16, bold: true }, paragraph: { first_line_indent_pt: 32 } },
+              'body-paragraph': { role_type: 'paragraph', font: { chinese_font: '宋体', western_font: 'Times New Roman', size_pt: 16 }, paragraph: { first_line_indent_pt: 32 } },
             },
           },
         ],
@@ -45,8 +45,11 @@ describe('App', () => {
     )
     render(<App />)
 
-    expect(await screen.findByLabelText('正文文字字号')).toHaveValue(12)
-    expect(screen.getByLabelText('文档标题字体')).toHaveValue('黑体')
+    expect(await screen.findByLabelText('段落正文中文字体')).toHaveValue('宋体')
+    expect(screen.getByLabelText('文档标题中文字体')).toHaveValue('黑体')
     expect(screen.getByRole('button', { name: '保存样式新版本' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收起设置' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Markdown 工作副本')).toBeInTheDocument()
+    expect(screen.queryByText('请确认结构建议')).not.toBeInTheDocument()
   })
 })

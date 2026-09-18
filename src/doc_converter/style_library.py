@@ -9,6 +9,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
+from doc_converter.style_schema import migrate_roles
+
 
 class StylePack(BaseModel):
     """A portable versioned style configuration for one output format."""
@@ -19,6 +21,21 @@ class StylePack(BaseModel):
     version: int = 0
     created_at: datetime
     roles: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    schema_version: str = "docx-style/v2"
+
+    @classmethod
+    def model_validate(cls, obj: Any, *args: Any, **kwargs: Any) -> "StylePack":
+        if isinstance(obj, dict):
+            obj = dict(obj)
+            obj["schema_version"] = "docx-style/v2"
+            obj["roles"] = migrate_roles(obj.get("roles"))
+        return super().model_validate(obj, *args, **kwargs)
+
+    @classmethod
+    def model_validate_json(cls, json_data: str | bytes | bytearray, *args: Any, **kwargs: Any) -> "StylePack":
+        import json
+
+        return cls.model_validate(json.loads(json_data), *args, **kwargs)
 
 
 def create_style_pack(*, name: str, format_id: str) -> StylePack:
@@ -29,14 +46,7 @@ def create_style_pack(*, name: str, format_id: str) -> StylePack:
         name=name,
         format_id=format_id,
         created_at=datetime.now(timezone.utc),
-        roles={
-            "document-title": {"alignment": "center", "bold": True},
-            "heading-1": {"bold": True},
-            "heading-2": {"bold": True},
-            "body": {"alignment": "left"},
-            "figure-caption": {"alignment": "center"},
-            "table-caption": {"alignment": "left"},
-        },
+        roles=migrate_roles({}),
     )
 
 

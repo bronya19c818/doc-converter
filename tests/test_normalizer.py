@@ -36,3 +36,47 @@ def test_normalization_preserves_image_link_table_and_body_text() -> None:
     assert result.report["integrity"]["images"] == ["images/layout.png"]
     assert result.report["integrity"]["links"] == ["https://example.com/project"]
     assert "| A | 10 |" in result.markdown
+
+
+def test_front_matter_metadata_is_structured_in_fixed_display_order() -> None:
+    source = """---
+title: 项目方案
+subtitle: 实施说明
+organization: XX公司
+department: XX部门
+authors:
+  - 张三
+  - 李四
+date: 2026-09-18
+---
+
+# 一、建设背景
+
+正文。
+"""
+
+    result = normalize_markdown(source, filename="方案.md", confirmed_roles={})
+
+    assert result.metadata == {
+        "title": "项目方案",
+        "subtitle": "实施说明",
+        "organization": "XX公司",
+        "department": "XX部门",
+        "authors": ["张三", "李四"],
+        "date": "2026-09-18",
+    }
+    assert result.markdown.index("title:") < result.markdown.index("subtitle:")
+    assert result.markdown.index("organization:") < result.markdown.index("department:")
+    assert result.markdown.index("authors:") < result.markdown.index("date:")
+
+
+def test_unconfirmed_heading_stays_in_working_copy_and_suggestion_is_not_required() -> None:
+    result = normalize_markdown(
+        "# 项目方案\n\n正文。\n",
+        filename="方案.md",
+        confirmed_roles={},
+    )
+
+    assert "# 项目方案" in result.markdown
+    assert result.metadata == {}
+    assert result.report["integrity"]["passed"] is True

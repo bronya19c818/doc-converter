@@ -4,6 +4,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# DOCX conversion is Pandoc + OOXML only. LibreOffice is intentionally not
+# installed, started, or used by this release script.
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $frontendRoot = Join-Path $projectRoot 'frontend'
 $webRoot = Join-Path $projectRoot 'src\doc_converter\web'
@@ -14,6 +16,8 @@ $applicationRoot = Join-Path $releaseRoot 'DocConverter'
 if (-not (Test-Path -LiteralPath $PandocPath -PathType Leaf)) {
     throw "未找到 Pandoc：$PandocPath。请安装 Pandoc 或使用 -PandocPath 指定 pandoc.exe。"
 }
+
+& $PandocPath --version | Select-Object -First 1 | Write-Output
 
 Push-Location $projectRoot
 try {

@@ -22,6 +22,9 @@ export type Job = {
   suggestions: Suggestion[]
   artifacts: string[]
   error: string | null
+  output_name: string | null
+  draft_updated_at: string | null
+  source_hash: string
 }
 
 const apiBase = import.meta.env.VITE_API_BASE ?? ''
@@ -74,11 +77,23 @@ export function createJob(file: File, stylePack: StylePack): Promise<Job> {
   return request<Job>('/api/jobs', { method: 'POST', body: formData })
 }
 
-export function normalizeAndRender(jobId: string, confirmedRoles: Record<string, string>): Promise<Job> {
+export function saveDraft(jobId: string, sourceMarkdown: string): Promise<Job> {
+  return request<Job>(`/api/jobs/${jobId}/draft`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ source_markdown: sourceMarkdown }),
+  })
+}
+
+export function normalizeAndRender(
+  jobId: string,
+  sourceMarkdown: string,
+  confirmedRoles: Record<string, string>,
+): Promise<Job> {
   return request<Job>(`/api/jobs/${jobId}/normalize-and-render`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ confirmed_roles: confirmedRoles }),
+    body: JSON.stringify({ source_markdown: sourceMarkdown, confirmed_roles: confirmedRoles }),
   })
 }
 

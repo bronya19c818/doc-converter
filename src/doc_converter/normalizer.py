@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any
 
 import yaml
@@ -19,6 +20,10 @@ class NormalizedDocument:
 
     markdown: str
     report: dict[str, Any]
+    metadata: dict[str, Any]
+
+
+_METADATA_KEYS = ("title", "subtitle", "organization", "department", "authors", "date")
 
 
 def normalize_markdown(
@@ -34,8 +39,8 @@ def normalize_markdown(
     cannot become silent content edits.
     """
 
-    metadata, content_lines, first_content_line = _extract_front_matter(source)
-    metadata["schema"] = "normalized-md/v1"
+    raw_metadata, content_lines, first_content_line = _extract_front_matter(source)
+    metadata = _normalize_metadata(raw_metadata)
     changes: list[dict[str, str | int]] = []
     normalized_lines: list[str] = []
 
@@ -43,10 +48,14 @@ def normalize_markdown(
         source_line = first_content_line + offset
         match = _HEADING_PATTERN.match(line)
         confirmed_role = confirmed_roles.get(source_line)
-        if match and confirmed_role == "document-title":
-            metadata["title"] = match.group(2)
+        if match and confirmed_role in {"document-title", "document-subtitle"}:
+            metadata["title" if confirmed_role == "document-title" else "subtitle"] = match.group(2)
             changes.append(
-                {"line": source_line, "from": f"heading-{len(match.group(1))}", "to": "document-title"}
+                {
+                    "line": source_line,
+                    "from": f"heading-{len(match.group(1))}",
+                    "to": confirmed_role,
+                }
             )
             continue
         normalized_lines.append(line)
@@ -67,8 +76,10 @@ def normalize_markdown(
             "source": filename,
             "changes": changes,
             "warnings": [],
+            "metadata": metadata,
             "integrity": integrity,
         },
+        metadata=metadata,
     )
 
 
@@ -87,8 +98,41 @@ def _extract_front_matter(source: str) -> tuple[dict[str, Any], list[str], int]:
 
 
 def _serialize_front_matter(metadata: dict[str, Any], body: str) -> str:
-    serialized_metadata = yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False).strip()
+    ordered: dict[str, Any] = {"schema": "normalized-md/v1"}
+    for key in _METADATA_KEYS:
+        if key in metadata and metadata[key] not in (None, "", []):
+            ordered[key] = metadata[key]
+    unknown = {key: value for key, value in metadata.items() if key not in _METADATA_KEYS and key != "schema"}
+    ordered.update(unknown)
+    serialized_metadata = yaml.safe_dump(ordered, allow_unicode=True, sort_keys=False).strip()
     return f"---\n{serialized_metadata}\n---\n\n{body}\n"
+
+
+def _normalize_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Coerce supported metadata to stable JSON/YAML-friendly values."""
+
+    normalized: dict[str, Any] = {}
+    for key in _METADATA_KEYS:
+        if key not in metadata:
+            continue
+        value = metadata[key]
+        if isinstance(value, (date, datetime)):
+            value = value.isoformat()
+        if key == "authors":
+            if isinstance(value, str):
+                value = [value]
+            elif isinstance(value, tuple):
+                value = list(value)
+            elif not isinstance(value, list):
+                value = []
+            value = [str(author) for author in value if str(author).strip()]
+        elif value is not None:
+            value = str(value)
+        normalized[key] = value
+    for key, value in metadata.items():
+        if key not in _METADATA_KEYS and key != "schema":
+            normalized[key] = value
+    return normalized
 
 
 def _integrity_inventory(source: str, normalized: str) -> dict[str, Any]:

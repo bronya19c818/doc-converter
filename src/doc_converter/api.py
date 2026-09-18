@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -16,9 +17,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from doc_converter.filename import safe_docx_filename
 from doc_converter.normalizer import normalize_markdown
 from doc_converter.renderer import RendererError, render_docx
 from doc_converter.style_library import StyleLibrary, StylePack, create_style_pack
+from doc_converter.style_schema import migrate_roles
 
 _NUMBERED_TITLE = re.compile(r"^(?:[一二三四五六七八九十]+、|（[^）]+）|\d+[.、])")
 
@@ -43,6 +46,19 @@ class ConfirmationRequest(BaseModel):
     confirmed_roles: dict[str, str] = Field(default_factory=dict)
 
 
+class DraftRequest(BaseModel):
+    """A complete editable Markdown work copy."""
+
+    source_markdown: str
+
+
+class RenderRequest(BaseModel):
+    """The current work copy and optional structure actions for rendering."""
+
+    source_markdown: str | None = None
+    confirmed_roles: dict[str, str] = Field(default_factory=dict)
+
+
 class JobRecord(BaseModel):
     """Persistent state for one local conversion job."""
 
@@ -55,6 +71,9 @@ class JobRecord(BaseModel):
     artifacts: list[str] = Field(default_factory=list)
     error: str | None = None
     created_at: datetime
+    output_name: str | None = None
+    draft_updated_at: datetime | None = None
+    source_hash: str = ""
 
 
 class JobStore:
@@ -72,18 +91,21 @@ class JobStore:
         style_pack_version: int,
         suggestions: list[dict[str, Any]],
     ) -> JobRecord:
+        created_at = datetime.now(timezone.utc)
         job = JobRecord(
             id=str(uuid4()),
-            status="needs-confirmation" if suggestions else "ready",
+            status="ready",
             source_name=source_name,
             style_pack_id=style_pack_id,
             style_pack_version=style_pack_version,
             suggestions=suggestions,
-            created_at=datetime.now(timezone.utc),
+            created_at=created_at,
+            source_hash=_source_hash(source),
         )
         job_directory = self.path_for(job.id)
         job_directory.mkdir(parents=True, exist_ok=False)
         (job_directory / "source.md").write_text(source, encoding="utf-8")
+        (job_directory / "source.original.md").write_text(source, encoding="utf-8")
         self.save(job)
         return job
 
@@ -116,7 +138,7 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
         CORSMiddleware,
         allow_origins=["http://127.0.0.1", "http://localhost"],
         allow_credentials=False,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT"],
         allow_headers=["*"],
     )
 
@@ -132,7 +154,7 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
     def save_style_pack(request: StylePackRequest) -> StylePack:
         pack = create_style_pack(name=request.name.strip(), format_id=request.format_id)
         if request.roles is not None:
-            pack = pack.model_copy(update={"roles": request.roles})
+            pack = pack.model_copy(update={"roles": migrate_roles(request.roles)})
         return style_library.save(pack)
 
     @app.put("/api/style-packs/{pack_id}", status_code=status.HTTP_201_CREATED)
@@ -150,7 +172,7 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
             current.model_copy(
                 update={
                     "name": request.name.strip(),
-                    "roles": request.roles if request.roles is not None else current.roles,
+                    "roles": migrate_roles(request.roles) if request.roles is not None else current.roles,
                 }
             )
         )
@@ -185,12 +207,38 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
     def get_job(job_id: str) -> JobRecord:
         return _get_job_or_404(job_store, job_id)
 
+    @app.put("/api/jobs/{job_id}/draft")
+    def save_draft(job_id: str, request: DraftRequest) -> JobRecord:
+        job = _get_job_or_404(job_store, job_id)
+        updated = job.model_copy(
+            update={
+                "status": "ready",
+                "suggestions": _suggest_semantic_roles(request.source_markdown),
+                "error": None,
+                "draft_updated_at": datetime.now(timezone.utc),
+                "source_hash": _source_hash(request.source_markdown),
+            }
+        )
+        job_store.path_for(job.id).mkdir(parents=True, exist_ok=True)
+        (job_store.path_for(job.id) / "source.md").write_text(request.source_markdown, encoding="utf-8")
+        job_store.save(updated)
+        return updated
+
     @app.post("/api/jobs/{job_id}/normalize-and-render")
-    def normalize_and_render(job_id: str, request: ConfirmationRequest) -> JobRecord:
+    def normalize_and_render(job_id: str, request: RenderRequest) -> JobRecord:
         job = _get_job_or_404(job_store, job_id)
         job_directory = job_store.path_for(job.id)
         confirmed_roles = {int(line): role for line, role in request.confirmed_roles.items()}
         try:
+            source_markdown = request.source_markdown
+            if source_markdown is not None:
+                (job_directory / "source.md").write_text(source_markdown, encoding="utf-8")
+                job = job.model_copy(
+                    update={
+                        "draft_updated_at": datetime.now(timezone.utc),
+                        "source_hash": _source_hash(source_markdown),
+                    }
+                )
             normalized = normalize_markdown(
                 (job_directory / "source.md").read_text(encoding="utf-8"),
                 filename=job.source_name,
@@ -211,23 +259,25 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
             (job_directory / "style-pack.snapshot.json").write_text(
                 style_pack.model_dump_json(indent=2), encoding="utf-8"
             )
+            output_name = safe_docx_filename(normalized.metadata.get("title"), job.source_name)
             render_docx(
                 markdown=normalized.markdown,
                 style_pack=style_pack,
-                output_path=job_directory / "result.docx",
+                output_path=job_directory / output_name,
                 work_dir=job_directory / "work",
             )
             completed = job.model_copy(
                 update={
                     "status": "completed",
                     "artifacts": [
-                        "result.docx",
+                        output_name,
                         "document.normalized.md",
                         "normalization-report.json",
                         "confirmation.json",
                         "style-pack.snapshot.json",
                     ],
                     "error": None,
+                    "output_name": output_name,
                 }
             )
             job_store.save(completed)
@@ -262,23 +312,43 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
 
 
 def _suggest_semantic_roles(source: str) -> list[dict[str, Any]]:
+    suggestions: list[dict[str, Any]] = []
+    title_found = False
     for line_number, line in enumerate(source.splitlines(), start=1):
         match = re.match(r"^#\s+(.+?)\s*$", line)
         if match:
             title = match.group(1)
-            if not _NUMBERED_TITLE.match(title):
-                return [
+            if not _NUMBERED_TITLE.match(title) and not title_found:
+                suggestions.append(
                     {
                         "line": line_number,
                         "role": "document-title",
                         "score": 0.9,
                         "reason": "首个无编号 H1",
                     }
-                ]
-            return []
+                )
+                title_found = True
+                continue
+            if title_found and not _NUMBERED_TITLE.match(title):
+                suggestions.append(
+                    {
+                        "line": line_number,
+                        "role": "document-subtitle",
+                        "score": 0.75,
+                        "reason": "标题后的无编号 H1，可作为副标题",
+                    }
+                )
+            if title_found:
+                return suggestions
         if line.strip():
+            if title_found:
+                return suggestions
             break
-    return []
+    return suggestions
+
+
+def _source_hash(source: str) -> str:
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
 
 def _get_job_or_404(job_store: JobStore, job_id: str) -> JobRecord:
