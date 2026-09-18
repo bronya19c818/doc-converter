@@ -9,6 +9,8 @@ type StyleEditorProps = {
   section?: 'roles' | 'page'
 }
 
+type RoleSection = 'pre' | 'body' | 'post'
+
 type RoleValue = {
   role_type: 'paragraph' | 'character' | 'page'
   font?: Record<string, unknown>
@@ -24,30 +26,48 @@ const ROLE_LABELS: Record<string, string> = {
   'organization-department': '单位/部门',
   author: '作者',
   date: '日期',
-  abstract: '摘要',
   'abstract-label': '摘要标签',
   'abstract-content': '摘要内容',
-  keywords: '关键词',
   'keywords-label': '关键词标签',
   'keywords-content': '关键词内容',
   'heading-1': '一级标题',
+  'heading-2': '二级标题',
+  'heading-3': '三级标题',
+  'heading-4': '四级标题',
+  'heading-5': '五级标题',
+  'heading-6': '六级标题',
   'body-paragraph': '段落正文',
   'body-table': '表格正文',
   point: '要点',
   'table-caption': '表格题',
   'figure-caption': '图表题',
+  'reference-heading': '参考文献标题',
+  'reference-entry': '参考文献条目',
   footer: '页脚',
 }
 
-const GROUPS: Array<{ title: string; roles: string[] }> = [
-  { title: '标题区角色', roles: ['document-title', 'document-subtitle', 'organization-department', 'author', 'date', 'abstract-label', 'abstract-content', 'abstract', 'keywords-label', 'keywords-content', 'keywords'] },
-  { title: '一级标题', roles: ['heading-1'] },
-  { title: '段落正文', roles: ['body-paragraph'] },
-  { title: '表格正文', roles: ['body-table'] },
-  { title: '要点', roles: ['point'] },
-  { title: '图表题', roles: ['table-caption', 'figure-caption'] },
-  { title: '页脚', roles: ['footer'] },
+const ROLE_SECTIONS: Array<{ key: RoleSection; label: string }> = [
+  { key: 'pre', label: '文前部分' },
+  { key: 'body', label: '正文部分' },
+  { key: 'post', label: '文后部分' },
 ]
+
+const GROUPS: Record<RoleSection, Array<{ title: string; roles: string[] }>> = {
+  pre: [
+    { title: '标题与元数据', roles: ['document-title', 'document-subtitle', 'organization-department', 'author', 'date'] },
+    { title: '摘要', roles: ['abstract-label', 'abstract-content'] },
+    { title: '关键词', roles: ['keywords-label', 'keywords-content'] },
+  ],
+  body: [
+    { title: '标题层级', roles: ['heading-1', 'heading-2', 'heading-3', 'heading-4', 'heading-5', 'heading-6'] },
+    { title: '正文', roles: ['body-paragraph', 'body-table'] },
+    { title: '要点与图表', roles: ['point', 'table-caption', 'figure-caption'] },
+  ],
+  post: [
+    { title: '参考文献（检测到“参考文献”标题后生效）', roles: ['reference-heading', 'reference-entry'] },
+    { title: '页脚', roles: ['footer'] },
+  ],
+}
 
 type IndentUnit = 'character' | 'pt' | 'cm'
 type LineSpacingRule = 'maximum' | 'minimum' | 'exact' | 'multiple'
@@ -90,6 +110,7 @@ export function StyleEditor({ disabled, onSaved, pack, section = 'roles' }: Styl
   const [roles, setRoles] = useState<RoleMap>(() => editableRolesFor(pack))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [roleSection, setRoleSection] = useState<RoleSection>('pre')
 
   useEffect(() => {
     setRoles(editableRolesFor(pack))
@@ -117,22 +138,40 @@ export function StyleEditor({ disabled, onSaved, pack, section = 'roles' }: Styl
         <h3>编辑样式属性</h3>
         <span>下次保存为 v{pack.version + 1}</span>
       </div>
-      {section === 'roles' ? GROUPS.map((group) => (
-        <fieldset className="style-group" key={group.title}>
-          <legend>{group.title}</legend>
-          <div className="role-grid">
-            {group.roles.map((roleKey) => (
-              <RoleEditor
-                disabled={isDisabled}
-                key={roleKey}
-                onChange={(field, value) => updateRole(setRoles, roleKey, field, value)}
-                roleKey={roleKey}
-                role={roles[roleKey]}
-              />
+      {section === 'roles' ? (
+        <>
+          <div aria-label="样式角色分区" className="role-section-tabs" role="tablist">
+            {ROLE_SECTIONS.map((item) => (
+              <button
+                aria-selected={roleSection === item.key}
+                className="role-section-tab"
+                key={item.key}
+                onClick={() => setRoleSection(item.key)}
+                role="tab"
+                type="button"
+              >
+                {item.label}
+              </button>
             ))}
           </div>
-        </fieldset>
-      )) : null}
+          {GROUPS[roleSection].map((group) => (
+            <fieldset className="style-group" key={group.title}>
+              <legend>{group.title}</legend>
+              <div className="role-grid">
+                {group.roles.map((roleKey) => (
+                  <RoleEditor
+                    disabled={isDisabled}
+                    key={roleKey}
+                    onChange={(field, value) => updateRole(setRoles, roleKey, field, value)}
+                    roleKey={roleKey}
+                    role={roles[roleKey]}
+                  />
+                ))}
+              </div>
+            </fieldset>
+          ))}
+        </>
+      ) : null}
       {section === 'page' ? <fieldset className="style-group page-settings">
         <legend>页面设置</legend>
         <div className="style-grid">
@@ -329,6 +368,11 @@ function editableRolesFor(pack: StylePack): RoleMap {
   })
   const defaults = defaultRoleMap()
   if (roles.body && !roles['body-paragraph']) roles['body-paragraph'] = roles.body
+  // v2 style packs used a separate paragraph role named ``abstract`` or
+  // ``keywords``.  Reuse those values as the new content paragraph role so
+  // the editor never shows a third, ambiguous card.
+  if (roles.abstract && !roles['abstract-content']) roles['abstract-content'] = { ...roles.abstract, role_type: 'paragraph' }
+  if (roles.keywords && !roles['keywords-content']) roles['keywords-content'] = { ...roles.keywords, role_type: 'paragraph' }
   Object.entries(defaults).forEach(([key, value]) => {
     roles[key] = {
       ...value,
@@ -366,14 +410,27 @@ function defaultRoleMap(): RoleMap {
   roles['organization-department'] = { ...roles['document-subtitle'] }
   roles.author = { ...roles['document-subtitle'] }
   roles.date = { ...roles['document-subtitle'] }
-  roles.abstract = { role_type: 'paragraph', font: { ...font }, paragraph: { ...paragraph, first_line_indent_pt: 32 } }
-  roles['abstract-label'] = { role_type: 'character', font: { ...font, chinese_font: '黑体', western_font: 'Arial', bold: true } }
-  roles['abstract-content'] = { role_type: 'character', font: { ...font } }
-  roles.keywords = { role_type: 'paragraph', font: { ...font }, paragraph: { ...paragraph, first_line_indent_pt: 0 } }
-  roles['keywords-label'] = { role_type: 'character', font: { ...font, chinese_font: '黑体', western_font: 'Arial', bold: true } }
-  roles['keywords-content'] = { role_type: 'character', font: { ...font } }
-  roles['heading-1'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 32 } }
+  roles['abstract-label'] = { role_type: 'character', font: { ...font, chinese_font: '黑体', size_pt: 9, bold: true } }
+  roles['abstract-content'] = {
+    role_type: 'paragraph',
+    font: { ...font, chinese_font: '楷体', size_pt: 9 },
+    paragraph: { ...paragraph, alignment: 'justify', first_line_indent_pt: 0, left_indent_pt: 18, right_indent_pt: 18, line_spacing_pt: 12, line_spacing_rule: 'minimum', space_before_pt: 12 },
+  }
+  roles['keywords-label'] = { role_type: 'character', font: { ...font, chinese_font: '黑体', size_pt: 9, bold: true } }
+  roles['keywords-content'] = {
+    role_type: 'paragraph',
+    font: { ...font, chinese_font: '楷体', size_pt: 9 },
+    paragraph: { ...paragraph, alignment: 'justify', first_line_indent_pt: 0, left_indent_pt: 18, right_indent_pt: 18, line_spacing_pt: 12, line_spacing_rule: 'minimum', space_after_pt: 5 },
+  }
+  roles['heading-1'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 14, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 18, line_spacing_rule: 'minimum' } }
+  roles['heading-2'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 12, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 12, line_spacing_rule: 'minimum' } }
+  roles['heading-3'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 10.5, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 12, line_spacing_rule: 'minimum' } }
+  roles['heading-4'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 9, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 12, line_spacing_rule: 'minimum' } }
+  roles['heading-5'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 7.5, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 12, line_spacing_rule: 'minimum' } }
+  roles['heading-6'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 6.5, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 12, line_spacing_rule: 'minimum' } }
   roles['body-table'] = { role_type: 'paragraph', font: { ...font, size_pt: 14 }, paragraph: { ...paragraph, first_line_indent_pt: 0 } }
+  roles['reference-heading'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 14, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 18, line_spacing_rule: 'minimum' } }
+  roles['reference-entry'] = { role_type: 'paragraph', font: { ...font, chinese_font: '宋体', western_font: 'Times New Roman', size_pt: 7.5 }, paragraph: { ...paragraph, alignment: 'justify', first_line_indent_pt: 0, line_spacing_pt: 12, line_spacing_rule: 'minimum' } }
   roles.footer = { role_type: 'paragraph', font: { ...font, chinese_font: '宋体', size_pt: 14 }, paragraph: { ...paragraph, alignment: 'center' } }
   roles.page = { role_type: 'page', page: { margin_top_cm: 3.5, margin_bottom_cm: 3.5, margin_left_cm: 2.8, margin_right_cm: 2.8, page_width_cm: 21, page_height_cm: 29.7 } }
   return roles

@@ -69,6 +69,10 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .style-editor-heading { align-items: baseline; display: flex; gap: 8px; justify-content: space-between; }
 .style-editor h3 { font-size: 16px; margin: 0; }
 .style-editor-heading span { color: #62726f; font-size: 12px; }
+.role-section-tabs { background: #f4f8f5; border: 1px solid #dce5e0; display: flex; gap: 4px; margin-top: 16px; overflow-x: auto; padding: 4px; }
+.role-section-tab { background: transparent; border: 0; border-radius: 4px; color: #526862; font-size: 13px; font-weight: 700; min-height: 36px; padding: 0 15px; white-space: nowrap; }
+.role-section-tab[aria-selected="true"] { background: #136c5f; color: #fff; }
+.role-section-tab:focus-visible { outline: 3px solid rgb(22 132 116 / 30%); outline-offset: 2px; }
 .style-group { border: 1px solid #dce5e0; margin: 14px 0 0; min-width: 0; padding: 12px; }
 .style-group legend { color: #145d53; font-size: 13px; font-weight: 700; padding: 0 5px; }
 .role-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }

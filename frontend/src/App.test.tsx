@@ -46,10 +46,13 @@ describe('App', () => {
     render(<App />)
 
     fireEvent.click(await screen.findByRole('button', { name: '打开设置' }))
+    fireEvent.click(screen.getByRole('tab', { name: '正文部分' }))
     expect(await screen.findByLabelText('段落正文中文字体')).toHaveValue('宋体')
+    fireEvent.click(screen.getByRole('tab', { name: '文前部分' }))
     expect(screen.getByLabelText('文档标题中文字体')).toHaveValue('黑体')
     expect(screen.getByLabelText('文档标题字号').tagName).toBe('SELECT')
     expect(screen.getByLabelText('文档标题字号')).toHaveValue('22')
+    fireEvent.click(screen.getByRole('tab', { name: '正文部分' }))
     expect(screen.getByLabelText('段落正文首行缩进单位')).toHaveValue('character')
     expect(screen.getByRole('button', { name: '保存样式新版本' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收起设置' })).toBeInTheDocument()

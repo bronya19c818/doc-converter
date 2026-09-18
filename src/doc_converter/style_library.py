@@ -21,13 +21,16 @@ class StylePack(BaseModel):
     version: int = 0
     created_at: datetime
     roles: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    schema_version: str = "docx-style/v2"
+    schema_version: str = "docx-style/v3"
 
     @classmethod
     def model_validate(cls, obj: Any, *args: Any, **kwargs: Any) -> "StylePack":
         if isinstance(obj, dict):
             obj = dict(obj)
-            obj["schema_version"] = "docx-style/v2"
+            # The loader always returns the current normalized schema.  Older
+            # JSON files are upgraded by ``migrate_roles`` without rewriting
+            # the original revision on disk.
+            obj["schema_version"] = "docx-style/v3"
             obj["roles"] = migrate_roles(obj.get("roles"))
         return super().model_validate(obj, *args, **kwargs)
 

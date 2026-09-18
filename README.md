@@ -39,9 +39,13 @@ keywords:
 
 每个样式组合都包含以下角色：
 
-`document-title`、`document-subtitle`、`organization-department`、`author`、`date`、`abstract-label`、`abstract-content`、`abstract`、`keywords-label`、`keywords-content`、`keywords`、`heading-1`、`body-paragraph`、`body-table`、`point`、`table-caption`、`figure-caption`、`footer`、`page`。
+当前 DOCX 样式包 schema 为 `docx-style/v3`；读取旧版样式包时会自动迁移，保存时创建新的不可变版本。
 
-摘要和关键词各自拆成“标签字符样式、内容字符样式、内容段落样式”：`摘要：` / `关键词：` 使用 `abstract-label` / `keywords-label`，后面的内容分别使用 `abstract-content` / `keywords-content`，所在段落使用 `abstract` / `keywords`。Markdown 中的 `表1……`、`表一……` 等表题在表格前会映射为 `table-caption`；简单 HTML `<table>` 也会在转换前确定性转成可编辑 Markdown 表格。
+`document-title`、`document-subtitle`、`organization-department`、`author`、`date`、`abstract-label`、`abstract-content`、`keywords-label`、`keywords-content`、`heading-1` 至 `heading-6`、`body-paragraph`、`body-table`、`point`、`table-caption`、`figure-caption`、`reference-heading`、`reference-entry`、`footer`、`page`。
+
+摘要和关键词各自只有两套可编辑角色：`摘要：` / `关键词：` 使用 `abstract-label` / `keywords-label`，内容及其段落布局分别使用 `abstract-content` / `keywords-content`。旧版样式包中的 `abstract` / `keywords` 段落角色会在读取时迁移到对应的内容角色，不会再生成第三套重复设置。Markdown 中的 `表1……`、`表一……` 等表题在表格前会映射为 `table-caption`；简单 HTML `<table>` 也会在转换前确定性转成可编辑 Markdown 表格。
+
+样式编辑器的样式角色再按“文前部分 / 正文部分 / 文后部分”分标签。文后部分以单独成行的“参考文献”“参考资料”或 `References`（可带中文/数字章节编号、括号编号、冒号或英文括注）为边界：检测到该标题后，标题使用 `reference-heading`，后续条目使用 `reference-entry`；没有参考文献标题的文档不自动产生文后正文样式。
 
 文字角色可以分别设置中文字体、西文字体、字号、粗体、斜体、颜色；段落角色还可以设置对齐、缩进、行距、段前段后和分页控制。默认值按正式中文文档模板设置：页面为 A4（21.0 cm × 29.7 cm），上下边距 3.5 cm、左右边距 2.8 cm，标题宋体二号，标题区楷体三号，一级标题黑体三号，段落正文仿宋三号且首行缩进 32 pt、固定行距 29 pt，表格正文仿宋四号无缩进，要点楷体三号加粗，页脚宋体四号。
 
@@ -51,9 +55,9 @@ keywords:
 
 生成的 DOCX 自包含 `DC_` 前缀样式：
 
-`DC_DocumentTitle`、`DC_DocumentSubtitle`、`DC_OrganizationDepartment`、`DC_Author`、`DC_Date`、`DC_AbstractLabel`、`DC_AbstractContent`、`DC_Abstract`、`DC_KeywordsLabel`、`DC_KeywordsContent`、`DC_Keywords`、`DC_Heading1`、`DC_BodyParagraph`、`DC_TableBody`、`DC_Point`、`DC_TableCaption`、`DC_FigureCaption`、`DC_Footer`。
+`DC_DocumentTitle`、`DC_DocumentSubtitle`、`DC_OrganizationDepartment`、`DC_Author`、`DC_Date`、`DC_AbstractLabel`、`DC_AbstractContent`、`DC_KeywordsLabel`、`DC_KeywordsContent`、`DC_Heading1` 至 `DC_Heading6`、`DC_BodyParagraph`、`DC_TableBody`、`DC_Point`、`DC_TableCaption`、`DC_FigureCaption`、`DC_ReferenceHeading`、`DC_ReferenceEntry`、`DC_Footer`。
 
-输出不依赖电脑上已有的同名 Word 样式；每个字体同时写入中文和西文四个字体槽位，避免字体回退。文档标题以外的所有 Markdown 标题（H1-H6）都统一映射为一级标题样式。Markdown 粗体映射为“要点”字符样式。列表编号保留为普通文字，不生成 Word 自动编号和自动缩进。
+输出不依赖电脑上已有的同名 Word 样式；每个字体同时写入中文和西文四个字体槽位，避免字体回退。文档标题独立使用 `DC_DocumentTitle`，正文 Markdown 的 H1-H6 分别映射到 `DC_Heading1` 至 `DC_Heading6`，不会把二、三级标题压成一级标题。Markdown 粗体映射为“要点”字符样式。列表编号保留为普通文字，不生成 Word 自动编号和自动缩进。
 
 导出的 DOCX 文件名使用文档标题并清理 Windows 非法字符；没有标题时使用源文件名。
 

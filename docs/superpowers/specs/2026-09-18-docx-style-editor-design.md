@@ -42,31 +42,33 @@
 
 ## DOCX 样式
 
-新增六个标题区角色：
+摘要和关键词各自只保留两类角色：标签字符样式与内容段落样式。旧版的三个角色布局在读取时迁移，不再向编辑器暴露重复控制：
 
 | 角色 | Word 样式 ID | 默认语义 |
 | --- | --- | --- |
 | `abstract-label` | `DC_AbstractLabel` | 摘要： |
-| `abstract-content` | `DC_AbstractContent` | 摘要内容字符 |
-| `abstract` | `DC_Abstract` | 摘要内容段落 |
+| `abstract-content` | `DC_AbstractContent` | 摘要内容及段落 |
 | `keywords-label` | `DC_KeywordsLabel` | 关键词： |
-| `keywords-content` | `DC_KeywordsContent` | 关键词内容字符 |
-| `keywords` | `DC_Keywords` | 关键词内容段落 |
+| `keywords-content` | `DC_KeywordsContent` | 关键词内容及段落 |
 
-六个角色进入“标题区角色”分组；标签和内容角色为字符样式，只编辑字体属性，摘要和关键词段落角色继续编辑对齐、缩进、行距和段前/段后。默认值分别复制段落正文的中文正式文档基线，关键词首行缩进为 0。
+标签角色为字符样式，内容角色为段落样式，因此摘要/关键词的文字和段落属性各有唯一入口。旧版 `abstract` / `keywords` 的段落设置迁移到新内容角色。
+
+正文标题使用六个独立角色 `heading-1` 至 `heading-6`，分别输出 `DC_Heading1` 至 `DC_Heading6`，不再把 H2-H6 统一成一级标题。编辑器按“文前部分 / 正文部分 / 文后部分”提供内层标签。
+
+文后部分的识别边界是单独成行的“参考文献”“参考资料”或 `References` 标题（允许带中文/数字章节编号、括号编号、冒号或英文括注）。检测到该标题后才把后续条目切换到 `reference-entry`；没有参考文献标题的文档没有文后正文样式。
 
 所有页面默认使用 A4：宽 21.0 cm，高 29.7 cm；页边距保持现有 3.5/3.5/2.8/2.8 cm。A4 尺寸写入生成 DOCX 的 section，同时由预览工作台显示为独立白色纸张。
 
 ## 元数据输出
 
-OOXML 收尾层在正文前按固定顺序插入标题区：标题、副标题、单位、部门、作者、日期、摘要、关键词。单位和部门继续共用 `DC_OrganizationDepartment`；作者数组用“、”连接。摘要和关键词段落分别使用 `DC_Abstract` 与 `DC_Keywords`，标签运行分别使用 `DC_AbstractLabel` / `DC_KeywordsLabel`，内容运行分别使用 `DC_AbstractContent` / `DC_KeywordsContent`。
+OOXML 收尾层在正文前按固定顺序插入标题区：标题、副标题、单位、部门、作者、日期、摘要、关键词。单位和部门继续共用 `DC_OrganizationDepartment`；作者数组用“、”连接。摘要和关键词段落分别使用 `DC_AbstractContent` 与 `DC_KeywordsContent`，标签运行分别使用 `DC_AbstractLabel` / `DC_KeywordsLabel`。
 
 ## 前端工作区
 
 - 左右工作区继续保持 42%/58%。
 - 设置面板从文档流中移出，默认折叠。
 - 折叠时显示固定在右下角的“⚙ 设置”悬浮按钮；展开后面板固定在底部，内部滚动，关闭按钮始终可见。
-- 面板标签为“样式角色”“页面设置”“下载产物”。生成按钮位于面板标题栏，下载链接只出现在产物标签。
+- 面板标签为“样式角色”“页面设置”“下载产物”；样式角色内部再分为“文前部分”“正文部分”“文后部分”。生成按钮位于面板标题栏，下载链接只出现在产物标签。
 - 移动端面板宽度占满视口底部，工作区纵向排列。
 
 ## 内置预览
@@ -80,10 +82,10 @@ OOXML 收尾层在正文前按固定顺序插入标题区：标题、副标题�
 ## 验收标准
 
 - 截图中的标题后短句能识别为副标题并出现在 `DC_DocumentSubtitle` 段落。
-- 摘要和关键词不会进入正文重复输出，且可分别通过 `DC_Abstract`、`DC_Keywords` 定位。
+- 摘要和关键词不会进入正文重复输出，且可分别通过 `DC_AbstractContent`、`DC_KeywordsContent` 定位；标签与内容的字体属性可独立验证。
 - 原始 HTML 表格会生成可编辑 DOCX 表格，表题段落使用 `DC_TableCaption`，单元格段落使用 `DC_TableBody`。
 - 新旧样式包均能读取；旧包补齐新角色并保持旧值，保存时仍生成不可变新版本。
-- 输出 DOCX 的 section 为 A4，`styles.xml` 含摘要/关键词标签与内容角色、`DC_TableCaption`、`DC_TableBody` 和既有 `DC_` 样式。
+- 输出 DOCX 的 section 为 A4，`styles.xml` 含摘要/关键词标签与内容角色、`DC_Heading1` 至 `DC_Heading6`、参考文献角色、`DC_TableCaption`、`DC_TableBody` 和既有 `DC_` 样式。
 - 设置面板无需滚动到底部即可打开、切换标签和收起；默认状态为折叠。
 - 预览启用 wrapper 分页，A4 纸张显示为分开的白色页面。
 - Python 测试、前端测试、Ruff、Mypy、前端构建全部通过。

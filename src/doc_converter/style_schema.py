@@ -18,18 +18,23 @@ ROLE_KEYS = (
     "organization-department",
     "author",
     "date",
-    "abstract",
     "abstract-label",
     "abstract-content",
-    "keywords",
     "keywords-label",
     "keywords-content",
     "heading-1",
+    "heading-2",
+    "heading-3",
+    "heading-4",
+    "heading-5",
+    "heading-6",
     "body-paragraph",
     "body-table",
     "point",
     "table-caption",
     "figure-caption",
+    "reference-heading",
+    "reference-entry",
     "footer",
     "page",
 )
@@ -139,33 +144,64 @@ def default_roles() -> dict[str, dict[str, Any]]:
             font={"chinese_font": "楷体", "western_font": "Times New Roman", "size_pt": 16, "bold": True},
             paragraph=centered,
         ),
-        "abstract": _role(
-            font={"chinese_font": "仿宋", "western_font": "Times New Roman", "size_pt": 16},
-            paragraph={"first_line_indent_pt": 32, "line_spacing_pt": 29},
-        ),
         "abstract-label": _role(
             role_type="character",
-            font={"chinese_font": "黑体", "western_font": "Arial", "size_pt": 16, "bold": True},
+            font={"chinese_font": "黑体", "western_font": "Times New Roman", "size_pt": 9, "bold": True},
         ),
         "abstract-content": _role(
-            role_type="character",
-            font={"chinese_font": "仿宋", "western_font": "Times New Roman", "size_pt": 16},
-        ),
-        "keywords": _role(
-            font={"chinese_font": "仿宋", "western_font": "Times New Roman", "size_pt": 16},
-            paragraph={"first_line_indent_pt": 0, "line_spacing_pt": 29},
+            font={"chinese_font": "楷体", "western_font": "Times New Roman", "size_pt": 9},
+            paragraph={
+                "alignment": "justify",
+                "first_line_indent_pt": 0,
+                "left_indent_pt": 18,
+                "left_indent_unit": "character",
+                "right_indent_pt": 18,
+                "right_indent_unit": "character",
+                "space_before_pt": 12,
+                "line_spacing_pt": 12,
+                "line_spacing_rule": "minimum",
+            },
         ),
         "keywords-label": _role(
             role_type="character",
-            font={"chinese_font": "黑体", "western_font": "Arial", "size_pt": 16, "bold": True},
+            font={"chinese_font": "黑体", "western_font": "Times New Roman", "size_pt": 9, "bold": True},
         ),
         "keywords-content": _role(
-            role_type="character",
-            font={"chinese_font": "仿宋", "western_font": "Times New Roman", "size_pt": 16},
+            font={"chinese_font": "楷体", "western_font": "Times New Roman", "size_pt": 9},
+            paragraph={
+                "alignment": "justify",
+                "left_indent_pt": 18,
+                "left_indent_unit": "character",
+                "right_indent_pt": 18,
+                "right_indent_unit": "character",
+                "space_after_pt": 5,
+                "line_spacing_pt": 12,
+                "line_spacing_rule": "minimum",
+            },
         ),
         "heading-1": _role(
-            font={"chinese_font": "黑体", "western_font": "Arial", "size_pt": 16, "bold": True},
-            paragraph={"first_line_indent_pt": 32},
+            font={"chinese_font": "黑体", "western_font": "Times New Roman", "size_pt": 14, "bold": True},
+            paragraph={"space_before_pt": 5, "line_spacing_pt": 18, "line_spacing_rule": "minimum"},
+        ),
+        "heading-2": _role(
+            font={"chinese_font": "黑体", "western_font": "Times New Roman", "size_pt": 12, "bold": True},
+            paragraph={"space_before_pt": 5, "line_spacing_pt": 12, "line_spacing_rule": "minimum"},
+        ),
+        "heading-3": _role(
+            font={"chinese_font": "黑体", "western_font": "Times New Roman", "size_pt": 10.5, "bold": True},
+            paragraph={"space_before_pt": 5, "line_spacing_pt": 12, "line_spacing_rule": "minimum"},
+        ),
+        "heading-4": _role(
+            font={"chinese_font": "黑体", "western_font": "Times New Roman", "size_pt": 9, "bold": True},
+            paragraph={"space_before_pt": 5, "line_spacing_pt": 12, "line_spacing_rule": "minimum"},
+        ),
+        "heading-5": _role(
+            font={"chinese_font": "黑体", "western_font": "Times New Roman", "size_pt": 7.5, "bold": True},
+            paragraph={"space_before_pt": 5, "line_spacing_pt": 12, "line_spacing_rule": "minimum"},
+        ),
+        "heading-6": _role(
+            font={"chinese_font": "黑体", "western_font": "Times New Roman", "size_pt": 6.5, "bold": True},
+            paragraph={"space_before_pt": 5, "line_spacing_pt": 12, "line_spacing_rule": "minimum"},
         ),
         "body-paragraph": _role(
             font={"chinese_font": "仿宋", "western_font": "Times New Roman", "size_pt": 16},
@@ -186,6 +222,14 @@ def default_roles() -> dict[str, dict[str, Any]]:
         "figure-caption": _role(
             font={"chinese_font": "黑体", "western_font": "Arial", "size_pt": 14, "bold": True},
             paragraph=centered,
+        ),
+        "reference-heading": _role(
+            font={"chinese_font": "黑体", "western_font": "Times New Roman", "size_pt": 14, "bold": True},
+            paragraph={"space_before_pt": 5, "line_spacing_pt": 18, "line_spacing_rule": "minimum"},
+        ),
+        "reference-entry": _role(
+            font={"chinese_font": "宋体", "western_font": "Times New Roman", "size_pt": 7.5},
+            paragraph={"alignment": "justify", "line_spacing_pt": 12, "line_spacing_rule": "minimum"},
         ),
         "footer": _role(
             font={"chinese_font": "宋体", "western_font": "Times New Roman", "size_pt": 14},
@@ -268,7 +312,13 @@ def _paragraph_from_legacy(value: dict[str, Any], fallback: dict[str, Any]) -> d
 
 
 def migrate_roles(raw_roles: Any) -> dict[str, dict[str, Any]]:
-    """Merge legacy flat roles into a complete schema-v2 role dictionary."""
+    """Merge legacy flat roles into a complete schema-v3 role dictionary.
+
+    Version 2 exposed three controls for each abstract/keyword block.  The
+    paragraph layout now lives on ``*-content`` while ``*-label`` remains a
+    character style, so old ``abstract``/``keywords`` values are folded into
+    the corresponding content role and are not emitted as duplicate roles.
+    """
 
     source = raw_roles if isinstance(raw_roles, dict) else {}
     defaults = default_roles()
@@ -276,6 +326,28 @@ def migrate_roles(raw_roles: Any) -> dict[str, dict[str, Any]]:
     for old_key, new_key in aliases.items():
         if old_key in source and new_key not in source:
             source = {**source, new_key: source[old_key]}
+
+    for legacy_key, content_key in (("abstract", "abstract-content"), ("keywords", "keywords-content")):
+        legacy = source.get(legacy_key)
+        current = source.get(content_key)
+        if isinstance(legacy, dict):
+            merged = dict(legacy)
+            if isinstance(current, dict):
+                legacy_font = legacy.get("font")
+                current_font = current.get("font")
+                legacy_font_dict: dict[str, Any] = legacy_font if isinstance(legacy_font, dict) else {}
+                current_font_dict: dict[str, Any] = current_font if isinstance(current_font, dict) else {}
+                if legacy_font_dict or current_font_dict:
+                    merged["font"] = {
+                        **legacy_font_dict,
+                        **current_font_dict,
+                    }
+                for font_key in ("font_name", "western_font", "font_size_pt", "bold", "italic", "color"):
+                    if font_key in current:
+                        merged[font_key] = current[font_key]
+                if isinstance(current.get("paragraph"), dict):
+                    merged["paragraph"] = current["paragraph"]
+            source = {**source, content_key: merged}
 
     migrated: dict[str, dict[str, Any]] = {}
     for role_key in ROLE_KEYS:

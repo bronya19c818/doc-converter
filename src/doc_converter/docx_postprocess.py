@@ -20,7 +20,14 @@ from doc_converter.normalizer import (
 )
 
 _ORDERED_LIST = re.compile(r"^(\s*)(\d+)\.(\s+)")
-_HEADING_STYLE = re.compile(r"^Heading\s*[1-6]$", re.IGNORECASE)
+_HEADING_STYLE = re.compile(r"^Heading\s*([1-6])$", re.IGNORECASE)
+_REFERENCE_HEADING_PATTERN = re.compile(
+    r"^(?:(?:\d+|[一二三四五六七八九十百千万]+)[、.．)\s]*|[（(]\s*(?:\d+|[一二三四五六七八九十百千万]+)\s*[）)]\s*)?"
+    r"(?:参考文献|参考资料|references?)"
+    r"(?:\s*[：:])?"
+    r"(?:\s*[（(]\s*references?\s*[）)])?\s*$",
+    re.IGNORECASE,
+)
 
 
 def split_metadata(markdown: str) -> tuple[dict[str, Any], str]:
@@ -52,8 +59,17 @@ def protect_ordered_list_literals(markdown: str) -> str:
 def apply_postprocess(document: DocxDocument, metadata: dict[str, Any]) -> None:
     """Apply semantic style IDs, metadata paragraphs, lists and footers."""
 
+    in_references = False
     for paragraph in document.paragraphs:
-        _map_paragraph(paragraph, ROLE_TO_STYLE_ID["body-paragraph"])
+        if _REFERENCE_HEADING_PATTERN.fullmatch(paragraph.text.strip()):
+            paragraph.style = ROLE_TO_STYLE_ID["reference-heading"]
+            _remove_numbering(paragraph)
+            in_references = True
+            continue
+        _map_paragraph(
+            paragraph,
+            ROLE_TO_STYLE_ID["reference-entry"] if in_references else ROLE_TO_STYLE_ID["body-paragraph"],
+        )
     for table in document.tables:
         for row in table.rows:
             for cell in row.cells:
@@ -67,8 +83,15 @@ def apply_postprocess(document: DocxDocument, metadata: dict[str, Any]) -> None:
 
 def _map_paragraph(paragraph: Paragraph, default_style: str) -> None:
     style_id = paragraph.style.style_id if paragraph.style is not None else ""
-    if _HEADING_STYLE.match(style_id) or style_id.lower().startswith("heading"):
-        paragraph.style = ROLE_TO_STYLE_ID["heading-1"]
+    heading_match = _HEADING_STYLE.match(style_id)
+    if heading_match:
+        paragraph.style = ROLE_TO_STYLE_ID[f"heading-{heading_match.group(1)}"]
+    elif style_id.lower().startswith("heading"):
+        # Pandoc occasionally emits ``Heading1`` without a space.  Preserve
+        # its level when possible, otherwise use the first-level body heading.
+        level_match = re.search(r"([1-6])$", style_id)
+        level = level_match.group(1) if level_match else "1"
+        paragraph.style = ROLE_TO_STYLE_ID[f"heading-{level}"]
     elif style_id not in ROLE_TO_STYLE_ID.values():
         paragraph.style = default_style
     _remove_numbering(paragraph)
@@ -148,9 +171,8 @@ def _insert_metadata(document: DocxDocument, metadata: dict[str, Any]) -> None:
             insert_index,
             label="摘要：",
             content=abstract,
-            paragraph_style=ROLE_TO_STYLE_ID["abstract"],
+            paragraph_style=ROLE_TO_STYLE_ID["abstract-content"],
             label_style=ROLE_TO_STYLE_ID["abstract-label"],
-            content_style=ROLE_TO_STYLE_ID["abstract-content"],
         )
         insert_index += 1
     if keywords:
@@ -160,9 +182,8 @@ def _insert_metadata(document: DocxDocument, metadata: dict[str, Any]) -> None:
             insert_index,
             label="关键词：",
             content=keywords,
-            paragraph_style=ROLE_TO_STYLE_ID["keywords"],
+            paragraph_style=ROLE_TO_STYLE_ID["keywords-content"],
             label_style=ROLE_TO_STYLE_ID["keywords-label"],
-            content_style=ROLE_TO_STYLE_ID["keywords-content"],
         )
 
 
@@ -175,7 +196,6 @@ def _insert_labeled_metadata_paragraph(
     content: str,
     paragraph_style: str,
     label_style: str,
-    content_style: str,
 ) -> None:
     element = OxmlElement("w:p")
     body.insert(insert_index, element)
@@ -183,8 +203,12 @@ def _insert_labeled_metadata_paragraph(
     paragraph.style = paragraph_style
     label_run = paragraph.add_run(label)
     label_run.style = label_style
-    content_run = paragraph.add_run(content)
-    content_run.style = content_style
+    # The content role is a paragraph style so its font and paragraph layout
+    # are edited together.  Keeping the run unstyled avoids assigning a
+    # paragraph style to a character run while still giving the content a
+    # distinct, inspectable ``DC_AbstractContent``/``DC_KeywordsContent``
+    # paragraph style.
+    paragraph.add_run(content)
 
 
 def _strip_metadata_label(value: Any, label: str) -> str:

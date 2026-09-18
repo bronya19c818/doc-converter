@@ -2,7 +2,9 @@ import zipfile
 
 import pytest
 from docx import Document
+from docx.oxml.ns import qn
 
+from doc_converter.docx_postprocess import _REFERENCE_HEADING_PATTERN
 from doc_converter.renderer import render_docx, resolve_pandoc
 from doc_converter.style_library import create_style_pack
 
@@ -116,13 +118,17 @@ title: AI模型助力提升物资采购质量
         "DC_DocumentTitle",
         "DC_Author",
         "DC_OrganizationDepartment",
-        "DC_Abstract",
-        "DC_Keywords",
+        "DC_AbstractContent",
+        "DC_KeywordsContent",
     }
     assert any(run.style and run.style.style_id == "DC_AbstractLabel" for paragraph in document.paragraphs for run in paragraph.runs)
     assert any(run.style and run.style.style_id == "DC_KeywordsLabel" for paragraph in document.paragraphs for run in paragraph.runs)
-    assert any(run.style and run.style.style_id == "DC_AbstractContent" for paragraph in document.paragraphs for run in paragraph.runs)
-    assert any(run.style and run.style.style_id == "DC_KeywordsContent" for paragraph in document.paragraphs for run in paragraph.runs)
+    assert any(paragraph.style.style_id == "DC_AbstractContent" for paragraph in document.paragraphs)
+    assert any(paragraph.style.style_id == "DC_KeywordsContent" for paragraph in document.paragraphs)
+    assert document.styles["DC_AbstractLabel"].type == 2  # character style
+    assert document.styles["DC_AbstractContent"].type == 1  # paragraph style
+    assert document.styles["DC_AbstractLabel"].font.name == "Times New Roman"
+    assert document.styles["DC_AbstractContent"].font.name == "Times New Roman"
     assert {
         paragraph.style.style_id
         for row in table.rows
@@ -189,15 +195,17 @@ keywords:
         "DC_OrganizationDepartment",
         "DC_Author",
         "DC_Date",
-        "DC_Abstract",
-        "DC_Keywords",
+        "DC_AbstractContent",
+        "DC_KeywordsContent",
     } <= style_ids
     text = "\n".join(paragraph.text for paragraph in document.paragraphs)
     assert "摘要：在安全、制度和生态四个方面推进智慧交易。" in text
     assert "关键词：人工智能；大模型；公共资源交易；数智化" in text
     assert round(document.sections[0].page_width.mm) == 210
     assert round(document.sections[0].page_height.mm) == 297
-    assert "DC_Heading1" in style_ids
+    assert {"DC_Heading1", "DC_Heading2"} <= style_ids
+    assert next(paragraph for paragraph in document.paragraphs if paragraph.text == "一、建设背景").style.style_id == "DC_Heading1"
+    assert next(paragraph for paragraph in document.paragraphs if paragraph.text == "二、工作内容").style.style_id == "DC_Heading2"
     table_style_ids = {
         paragraph.style.style_id
         for table in document.tables
@@ -221,21 +229,82 @@ keywords:
         "DC_Author",
         "DC_Date",
         "DC_AbstractLabel",
-        "DC_Abstract",
         "DC_AbstractContent",
         "DC_KeywordsLabel",
-        "DC_Keywords",
         "DC_KeywordsContent",
         "DC_Heading1",
+        "DC_Heading2",
+        "DC_Heading3",
+        "DC_Heading4",
+        "DC_Heading5",
+        "DC_Heading6",
         "DC_BodyParagraph",
         "DC_TableBody",
         "DC_Point",
+        "DC_ReferenceHeading",
+        "DC_ReferenceEntry",
         "DC_Footer",
     ):
         assert f'w:styleId="{style_id}"' in styles_xml
     assert 'w:eastAsia="仿宋"' in styles_xml
     assert 'w:ascii="Times New Roman"' in styles_xml
     assert 'w:val="DC_Point"' in document_xml
+    for level in range(1, 7):
+        style = document.styles[f"DC_Heading{level}"]
+        ppr = style._element.find(qn("w:pPr"))
+        assert ppr is not None
+        outline = ppr.find(qn("w:outlineLvl"))
+        assert outline is not None
+        assert outline.get(qn("w:val")) == str(level - 1)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["参考文献：", "（一）参考文献", "（1）参考文献", "参考文献（References）"],
+)
+def test_reference_heading_variants_are_recognized(value: str) -> None:
+    assert _REFERENCE_HEADING_PATTERN.fullmatch(value) is not None
+
+
+def test_renderer_starts_post_document_styles_only_at_reference_heading(tmp_path) -> None:
+    markdown = """# 正文标题
+
+正文段落。
+
+六、参考文献
+
+[1] 参考资料条目。
+"""
+    output_path = tmp_path / "references.docx"
+
+    render_docx(
+        markdown=markdown,
+        style_pack=create_style_pack(name="参考文献测试", format_id="docx"),
+        output_path=output_path,
+        work_dir=tmp_path / "work",
+    )
+
+    document = Document(output_path)
+    paragraphs = {paragraph.text: paragraph.style.style_id for paragraph in document.paragraphs}
+    assert paragraphs["正文段落。"] == "DC_BodyParagraph"
+    assert paragraphs["六、参考文献"] == "DC_ReferenceHeading"
+    assert paragraphs["[1] 参考资料条目。"] == "DC_ReferenceEntry"
+
+
+def test_renderer_without_reference_heading_has_no_post_document_body_style(tmp_path) -> None:
+    output_path = tmp_path / "no-references.docx"
+    render_docx(
+        markdown="# 正文标题\n\n普通正文。\n",
+        style_pack=create_style_pack(name="无参考文献测试", format_id="docx"),
+        output_path=output_path,
+        work_dir=tmp_path / "work",
+    )
+
+    document = Document(output_path)
+    assert all(
+        paragraph.style.style_id not in {"DC_ReferenceHeading", "DC_ReferenceEntry"}
+        for paragraph in document.paragraphs
+    )
 
 
 def test_renderer_keeps_selected_chinese_and_western_fonts_in_ooxml(tmp_path) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from docx.document import Document as DocxDocument
@@ -20,18 +21,23 @@ ROLE_TO_STYLE_ID = {
     "organization-department": "DC_OrganizationDepartment",
     "author": "DC_Author",
     "date": "DC_Date",
-    "abstract": "DC_Abstract",
     "abstract-label": "DC_AbstractLabel",
     "abstract-content": "DC_AbstractContent",
-    "keywords": "DC_Keywords",
     "keywords-label": "DC_KeywordsLabel",
     "keywords-content": "DC_KeywordsContent",
     "heading-1": "DC_Heading1",
+    "heading-2": "DC_Heading2",
+    "heading-3": "DC_Heading3",
+    "heading-4": "DC_Heading4",
+    "heading-5": "DC_Heading5",
+    "heading-6": "DC_Heading6",
     "body-paragraph": "DC_BodyParagraph",
     "body-table": "DC_TableBody",
     "point": "DC_Point",
     "table-caption": "DC_TableCaption",
     "figure-caption": "DC_FigureCaption",
+    "reference-heading": "DC_ReferenceHeading",
+    "reference-entry": "DC_ReferenceEntry",
     "footer": "DC_Footer",
 }
 
@@ -62,7 +68,7 @@ def compile_styles(document: DocxDocument, style_pack: StylePack) -> None:
         role_type = role_data.get("role_type", "paragraph")
         style_type = WD_STYLE_TYPE.CHARACTER if role_type == "character" else WD_STYLE_TYPE.PARAGRAPH
         style = _get_or_add_style(document, style_id, style_type)
-        _apply_role(style, role_data, style_type)
+        _apply_role(style, role_data, style_type, role)
 
     _set_doc_defaults(document, roles.get("body-paragraph", {}))
 
@@ -76,7 +82,12 @@ def _get_or_add_style(document: DocxDocument, style_id: str, style_type: WD_STYL
     return style
 
 
-def _apply_role(style: Any, role_data: dict[str, Any], style_type: WD_STYLE_TYPE) -> None:
+def _apply_role(
+    style: Any,
+    role_data: dict[str, Any],
+    style_type: WD_STYLE_TYPE,
+    role: str | None = None,
+) -> None:
     font_data = role_data.get("font", {})
     font = style.font
     chinese = font_data.get("chinese_font")
@@ -101,6 +112,22 @@ def _apply_role(style: Any, role_data: dict[str, Any], style_type: WD_STYLE_TYPE
     if style_type != WD_STYLE_TYPE.CHARACTER:
         paragraph_data = role_data.get("paragraph", {})
         _apply_paragraph(style, paragraph_data, font_size_pt)
+        if role and role.startswith("heading-"):
+            _set_outline_level(style, role)
+
+
+def _set_outline_level(style: Any, role: str) -> None:
+    """Make custom heading styles participate in Word's outline/TOC model."""
+
+    match = re.match(r"heading-([1-6])$", role)
+    if match is None:
+        return
+    ppr = style._element.get_or_add_pPr()
+    outline = ppr.find(qn("w:outlineLvl"))
+    if outline is None:
+        outline = OxmlElement("w:outlineLvl")
+        ppr.append(outline)
+    outline.set(qn("w:val"), str(int(match.group(1)) - 1))
 
 
 def _apply_paragraph(style: Any, data: dict[str, Any], font_size_pt: float) -> None:
