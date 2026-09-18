@@ -18,6 +18,8 @@ ROLE_KEYS = (
     "organization-department",
     "author",
     "date",
+    "abstract",
+    "keywords",
     "heading-1",
     "body-paragraph",
     "body-table",
@@ -76,6 +78,8 @@ class PageSpec(BaseModel):
     margin_bottom_cm: float = 3.5
     margin_left_cm: float = 2.8
     margin_right_cm: float = 2.8
+    page_width_cm: float = 21.0
+    page_height_cm: float = 29.7
 
 
 class StyleRole(BaseModel):
@@ -131,6 +135,14 @@ def default_roles() -> dict[str, dict[str, Any]]:
             font={"chinese_font": "楷体", "western_font": "Times New Roman", "size_pt": 16, "bold": True},
             paragraph=centered,
         ),
+        "abstract": _role(
+            font={"chinese_font": "仿宋", "western_font": "Times New Roman", "size_pt": 16},
+            paragraph={"first_line_indent_pt": 32, "line_spacing_pt": 29},
+        ),
+        "keywords": _role(
+            font={"chinese_font": "仿宋", "western_font": "Times New Roman", "size_pt": 16},
+            paragraph={"first_line_indent_pt": 0, "line_spacing_pt": 29},
+        ),
         "heading-1": _role(
             font={"chinese_font": "黑体", "western_font": "Arial", "size_pt": 16, "bold": True},
             paragraph={"first_line_indent_pt": 32},
@@ -166,6 +178,8 @@ def default_roles() -> dict[str, dict[str, Any]]:
                 "margin_bottom_cm": 3.5,
                 "margin_left_cm": 2.8,
                 "margin_right_cm": 2.8,
+                "page_width_cm": 21.0,
+                "page_height_cm": 29.7,
             },
         ),
     }

@@ -9,7 +9,7 @@ from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
-from docx.shared import Cm, Pt, RGBColor
+from docx.shared import Cm, Mm, Pt, RGBColor
 
 from doc_converter.style_library import StylePack
 from doc_converter.style_schema import migrate_roles
@@ -20,6 +20,8 @@ ROLE_TO_STYLE_ID = {
     "organization-department": "DC_OrganizationDepartment",
     "author": "DC_Author",
     "date": "DC_Date",
+    "abstract": "DC_Abstract",
+    "keywords": "DC_Keywords",
     "heading-1": "DC_Heading1",
     "body-paragraph": "DC_BodyParagraph",
     "body-table": "DC_TableBody",
@@ -41,10 +43,15 @@ def compile_styles(document: DocxDocument, style_pack: StylePack) -> None:
         ("bottom_margin", "margin_bottom_cm"),
         ("left_margin", "margin_left_cm"),
         ("right_margin", "margin_right_cm"),
+        ("page_width", "page_width_cm"),
+        ("page_height", "page_height_cm"),
     ):
         value = page.get(key)
         if isinstance(value, (int, float)):
-            setattr(section, attribute, Cm(value))
+            if attribute in {"page_width", "page_height"}:
+                setattr(section, attribute, Mm(round(float(value) * 10)))
+            else:
+                setattr(section, attribute, Cm(value))
 
     for role, style_id in ROLE_TO_STYLE_ID.items():
         role_data = roles.get(role, {})

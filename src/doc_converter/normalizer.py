@@ -12,6 +12,8 @@ import yaml
 _HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _IMAGE_PATTERN = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 _LINK_PATTERN = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+_LABEL_PATTERN = re.compile(r"^\s*(摘要|关键词)\s*[:：]\s*(.*)$")
+_KEYWORD_SEPARATOR = re.compile(r"[；;，,\n]+")
 
 
 @dataclass(frozen=True)
@@ -23,7 +25,16 @@ class NormalizedDocument:
     metadata: dict[str, Any]
 
 
-_METADATA_KEYS = ("title", "subtitle", "organization", "department", "authors", "date")
+_METADATA_KEYS = (
+    "title",
+    "subtitle",
+    "organization",
+    "department",
+    "authors",
+    "date",
+    "abstract",
+    "keywords",
+)
 
 
 def normalize_markdown(
@@ -32,19 +43,29 @@ def normalize_markdown(
     filename: str,
     confirmed_roles: dict[int, str],
 ) -> NormalizedDocument:
-    """Move only user-confirmed document metadata out of Markdown blocks.
+    """Normalize explicit and narrowly recognizable title-area metadata.
 
-    ``confirmed_roles`` is keyed by the one-based source line number.  All
-    unconfirmed source text remains untouched so that structural suggestions
-    cannot become silent content edits.
+    ``confirmed_roles`` is keyed by the one-based source line number.  Leading
+    subtitle and labelled abstract/keyword blocks are extracted only by the
+    deterministic title-area rules below; other unconfirmed source text
+    remains untouched so structural suggestions cannot become silent edits.
     """
 
     raw_metadata, content_lines, first_content_line = _extract_front_matter(source)
     metadata = _normalize_metadata(raw_metadata)
     changes: list[dict[str, str | int]] = []
+    extracted, consumed, extracted_changes = _extract_leading_metadata(
+        content_lines,
+        metadata,
+        first_content_line,
+    )
+    metadata.update(extracted)
+    changes.extend(extracted_changes)
     normalized_lines: list[str] = []
 
     for offset, line in enumerate(content_lines):
+        if offset in consumed:
+            continue
         source_line = first_content_line + offset
         match = _HEADING_PATTERN.match(line)
         confirmed_role = confirmed_roles.get(source_line)
@@ -118,14 +139,14 @@ def _normalize_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         value = metadata[key]
         if isinstance(value, (date, datetime)):
             value = value.isoformat()
-        if key == "authors":
+        if key in {"authors", "keywords"}:
             if isinstance(value, str):
-                value = [value]
+                value = _split_list_value(value)
             elif isinstance(value, tuple):
                 value = list(value)
             elif not isinstance(value, list):
                 value = []
-            value = [str(author) for author in value if str(author).strip()]
+            value = [str(item).strip() for item in value if str(item).strip()]
         elif value is not None:
             value = str(value)
         normalized[key] = value
@@ -133,6 +154,114 @@ def _normalize_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         if key not in _METADATA_KEYS and key != "schema":
             normalized[key] = value
     return normalized
+
+
+def _extract_leading_metadata(
+    lines: list[str],
+    metadata: dict[str, Any],
+    first_content_line: int,
+) -> tuple[dict[str, Any], set[int], list[dict[str, str | int]]]:
+    """Extract strongly labelled title-area blocks without rewriting ordinary prose."""
+
+    barrier = _leading_metadata_barrier(lines)
+    blocks = _non_empty_blocks(lines[:barrier])
+    extracted: dict[str, Any] = {}
+    consumed: set[int] = set()
+    changes: list[dict[str, str | int]] = []
+    subtitle_seen = False
+
+    for block_start, block_end, block_lines in blocks:
+        block_text = "\n".join(line.strip() for line in block_lines).strip()
+        label_match = _LABEL_PATTERN.match(block_text)
+        if label_match:
+            key = "abstract" if label_match.group(1) == "摘要" else "keywords"
+            if key in metadata or key in extracted:
+                continue
+            value = label_match.group(2).strip()
+            if len(block_lines) > 1:
+                continuation = "\n".join(line.strip() for line in block_lines[1:]).strip()
+                value = "\n".join(part for part in (value, continuation) if part)
+            if key == "keywords":
+                parsed = _split_list_value(value)
+                if not parsed:
+                    continue
+                extracted[key] = parsed
+            elif value:
+                extracted[key] = value
+            else:
+                continue
+            consumed.update(range(block_start, block_end))
+            changes.append(
+                {
+                    "line": first_content_line + block_start,
+                    "from": "labelled-paragraph",
+                    "to": key,
+                }
+            )
+            continue
+
+        if (
+            not subtitle_seen
+            and "title" in metadata
+            and "subtitle" not in metadata
+            and "subtitle" not in extracted
+            and _is_subtitle_candidate(block_lines)
+        ):
+            extracted["subtitle"] = block_text
+            consumed.update(range(block_start, block_end))
+            subtitle_seen = True
+            changes.append(
+                {
+                    "line": first_content_line + block_start,
+                    "from": "leading-paragraph",
+                    "to": "document-subtitle",
+                }
+            )
+
+    return extracted, consumed, changes
+
+
+def _leading_metadata_barrier(lines: list[str]) -> int:
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if _HEADING_PATTERN.match(line) or stripped.startswith(("```", "~~~", "|")):
+            return index
+    return len(lines)
+
+
+def _non_empty_blocks(lines: list[str]) -> list[tuple[int, int, list[str]]]:
+    blocks: list[tuple[int, int, list[str]]] = []
+    index = 0
+    while index < len(lines):
+        if not lines[index].strip():
+            index += 1
+            continue
+        start = index
+        block_lines: list[str] = []
+        while index < len(lines) and lines[index].strip():
+            block_lines.append(lines[index])
+            index += 1
+        blocks.append((start, index, block_lines))
+    return blocks
+
+
+def _is_subtitle_candidate(lines: list[str]) -> bool:
+    if len(lines) != 1:
+        return False
+    value = lines[0].strip()
+    if not 2 <= len(value) <= 80:
+        return False
+    if _LABEL_PATTERN.match(value) or _HEADING_PATTERN.match(value):
+        return False
+    if value.startswith(("- ", "* ", "+ ", "> ")) or re.match(r"^\d+[.)、]", value):
+        return False
+    return not value.endswith(("。", "！", "？", "；", ".", "!", "?", ";", ":", "："))
+
+
+def _split_list_value(value: str) -> list[str]:
+    return [item.strip() for item in _KEYWORD_SEPARATOR.split(value) if item.strip()]
 
 
 def _integrity_inventory(source: str, normalized: str) -> dict[str, Any]:

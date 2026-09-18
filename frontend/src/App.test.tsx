@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { App } from './App'
@@ -45,6 +45,7 @@ describe('App', () => {
     )
     render(<App />)
 
+    fireEvent.click(await screen.findByRole('button', { name: '打开设置' }))
     expect(await screen.findByLabelText('段落正文中文字体')).toHaveValue('宋体')
     expect(screen.getByLabelText('文档标题中文字体')).toHaveValue('黑体')
     expect(screen.getByLabelText('文档标题字号').tagName).toBe('SELECT')
@@ -54,5 +55,30 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: '收起设置' })).toBeInTheDocument()
     expect(screen.getByLabelText('Markdown 工作副本')).toBeInTheDocument()
     expect(screen.queryByText('请确认结构建议')).not.toBeInTheDocument()
+  })
+
+  it('opens floating settings and switches between tabs', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => [
+          {
+            id: 'formal-report',
+            name: '正式报告',
+            format_id: 'docx',
+            version: 1,
+            roles: {},
+          },
+        ],
+      }),
+    )
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: '打开设置' }))
+    expect(screen.getByRole('tab', { name: '样式角色' })).toHaveAttribute('aria-selected', 'true')
+    fireEvent.click(screen.getByRole('tab', { name: '下载产物' }))
+    expect(screen.getByRole('heading', { name: '下载产物' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '收起设置' })).toBeInTheDocument()
   })
 })

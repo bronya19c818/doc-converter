@@ -23,6 +23,8 @@ describe('StyleEditor', () => {
     expect(screen.getByLabelText('段落正文中文字体')).toHaveValue('仿宋')
     expect(screen.getByLabelText('段落正文西文字体')).toHaveValue('Times New Roman')
     expect(screen.getByLabelText('表格正文中文字体')).toHaveValue('仿宋')
+    expect(screen.getByLabelText('摘要中文字体')).toHaveValue('仿宋')
+    expect(screen.getByLabelText('关键词字号').tagName).toBe('SELECT')
     expect(screen.getByLabelText('段落正文字号').tagName).toBe('SELECT')
     expect(screen.getByLabelText('段落正文字号')).toHaveValue('16')
     expect(screen.getAllByRole('option', { name: '三号（16 磅）' }).length).toBeGreaterThan(0)
@@ -31,7 +33,16 @@ describe('StyleEditor', () => {
     expect(screen.getByLabelText('段落正文行距类型')).toHaveValue('exact')
     expect(screen.getByLabelText('段落正文行距（磅）')).toHaveValue(29)
     expect(screen.getAllByRole('option', { name: '多倍' }).length).toBeGreaterThan(0)
+    expect(screen.queryByText('页面设置')).not.toBeInTheDocument()
+  })
+
+  it('can isolate the page settings tab content', () => {
+    render(<StyleEditor disabled={false} onSaved={vi.fn()} pack={pack} section="page" />)
+
     expect(screen.getByText('页面设置')).toBeInTheDocument()
+    expect(screen.queryByLabelText('段落正文中文字体')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('页面宽度（厘米）')).toHaveValue(21)
+    expect(screen.getByLabelText('页面高度（厘米）')).toHaveValue(29.7)
   })
 
   it('keeps character indentation stable when the font size changes', () => {

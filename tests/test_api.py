@@ -1,3 +1,7 @@
+from io import BytesIO
+from pathlib import Path
+
+from docx import Document
 from fastapi.testclient import TestClient
 
 from doc_converter.api import create_app
@@ -46,6 +50,37 @@ def test_local_api_creates_editable_job_saves_draft_and_renders_named_job(tmp_pa
     assert docx.headers["content-type"].startswith(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
+
+
+def test_api_renders_generated_comprehensive_fixture_without_subtitle_confirmation(tmp_path) -> None:
+    client = TestClient(create_app(data_root=tmp_path))
+    pack = client.post("/api/style-packs", json={"name": "综合测试", "format_id": "docx"}).json()
+    source = (Path(__file__).parent / "fixtures" / "comprehensive.md").read_text(encoding="utf-8")
+
+    created = client.post(
+        "/api/jobs",
+        data={"style_pack_id": pack["id"], "style_pack_version": str(pack["version"])},
+        files={"source": ("综合测试.md", source, "text/markdown")},
+    )
+    assert created.status_code == 201
+    job = created.json()
+
+    completed = client.post(
+        f"/api/jobs/{job['id']}/normalize-and-render",
+        json={"source_markdown": source, "confirmed_roles": {}},
+    )
+
+    assert completed.status_code == 200
+    payload = completed.json()
+    assert payload["output_name"] == "人工智能+公共资源交易创新实践.docx"
+    assert payload["status"] == "completed"
+
+    response = client.get(f"/api/jobs/{job['id']}/artifacts/{payload['output_name']}")
+    document = Document(BytesIO(response.content))
+    paragraph_text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+    assert "基于14个省级创新样本的实践总结" in paragraph_text
+    assert "摘要：本文从治理、安全、技术和生态四个方面总结公共资源交易数智化实践，并给出可执行的推进路径。" in paragraph_text
+    assert "关键词：人工智能；大模型；公共资源交易；数智化" in paragraph_text
 
 
 def test_application_serves_bundled_frontend_without_a_second_service(tmp_path) -> None:

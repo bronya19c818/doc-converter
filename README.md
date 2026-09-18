@@ -5,7 +5,8 @@
 ## 当前能力
 
 - A 方案双栏工作区：左侧可编辑 Markdown 工作副本，右侧内置 DOCX 预览。
-- 样式面板固定在页面底部，可折叠；样式组合支持保存不可变新版本。
+- 样式设置默认折叠为右下角悬浮按钮，需要时展开为固定底部面板，并按“样式角色 / 页面设置 / 下载产物”分标签管理；样式组合支持保存不可变新版本。
+- 内置预览按 A4 纸张显示分页页面，预览在浏览器内完成，不需要滚动到页面底部才能打开设置。
 - 结构建议只作提示，可直接应用为文档标题或副标题，不再阻塞生成。
 - 任务产物包括 DOCX、规范化 Markdown、审计报告和样式快照。
 - Pandoc 随 Windows 发布包分发；LibreOffice 不参与自动转换，Word 仅作为用户显式进行高保真复核时的可选工具。
@@ -23,18 +24,22 @@ authors:
   - 张三
   - 李四
 date: 2026-09-18
+abstract: 本文摘要内容。
+keywords:
+  - 关键词一
+  - 关键词二
 ---
 ```
 
-元数据顺序固定为：标题 → 副标题 → 单位 → 部门 → 作者 → 日期。`organization` 和 `department` 是两个独立字段，但在 DOCX 中共用“单位/部门”视觉样式；多个作者按数组顺序用“、”合并。
+元数据顺序固定为：标题 → 副标题 → 单位 → 部门 → 作者 → 日期 → 摘要 → 关键词。Front Matter 没有填写副标题时，规范化器会识别标题后的短文本行；也会识别正文中的 `摘要：`、`摘要:`、`关键词：` 和 `关键词:`。`organization` 和 `department` 是两个独立字段，但在 DOCX 中共用“单位/部门”视觉样式；多个作者按数组顺序用“、”合并。识别出的摘要和关键词不会重复进入正文。
 
 ## DOCX 样式库
 
 每个样式组合都包含以下角色：
 
-`document-title`、`document-subtitle`、`organization-department`、`author`、`date`、`heading-1`、`body-paragraph`、`body-table`、`point`、`table-caption`、`figure-caption`、`footer`、`page`。
+`document-title`、`document-subtitle`、`organization-department`、`author`、`date`、`abstract`、`keywords`、`heading-1`、`body-paragraph`、`body-table`、`point`、`table-caption`、`figure-caption`、`footer`、`page`。
 
-文字角色可以分别设置中文字体、西文字体、字号、粗体、斜体、颜色；段落角色还可以设置对齐、缩进、行距、段前段后和分页控制。默认值按正式中文文档模板设置：上下边距 3.5 cm、左右边距 2.8 cm，标题宋体二号，标题区楷体三号，一级标题黑体三号，段落正文仿宋三号且首行缩进 32 pt、固定行距 29 pt，表格正文仿宋四号无缩进，要点楷体三号加粗，页脚宋体四号。
+文字角色可以分别设置中文字体、西文字体、字号、粗体、斜体、颜色；段落角色还可以设置对齐、缩进、行距、段前段后和分页控制。默认值按正式中文文档模板设置：页面为 A4（21.0 cm × 29.7 cm），上下边距 3.5 cm、左右边距 2.8 cm，标题宋体二号，标题区楷体三号，一级标题黑体三号，段落正文仿宋三号且首行缩进 32 pt、固定行距 29 pt，表格正文仿宋四号无缩进，要点楷体三号加粗，页脚宋体四号。
 
 网页编辑器中的字号优先使用“初号、小初、一号、二号、三号、四号、小四”等中文字号，并在括号中显示对应磅值。首行、左右缩进默认按“字符”显示，也可切换为“磅”或“厘米”；切换字号时，字符缩进会保持字符数不变。行距可选择最大值、最小值、固定值或多倍，并按所选类型显示磅值或倍数。
 
@@ -42,7 +47,7 @@ date: 2026-09-18
 
 生成的 DOCX 自包含 `DC_` 前缀样式：
 
-`DC_DocumentTitle`、`DC_DocumentSubtitle`、`DC_OrganizationDepartment`、`DC_Author`、`DC_Date`、`DC_Heading1`、`DC_BodyParagraph`、`DC_TableBody`、`DC_Point`、`DC_TableCaption`、`DC_FigureCaption`、`DC_Footer`。
+`DC_DocumentTitle`、`DC_DocumentSubtitle`、`DC_OrganizationDepartment`、`DC_Author`、`DC_Date`、`DC_Abstract`、`DC_Keywords`、`DC_Heading1`、`DC_BodyParagraph`、`DC_TableBody`、`DC_Point`、`DC_TableCaption`、`DC_FigureCaption`、`DC_Footer`。
 
 输出不依赖电脑上已有的同名 Word 样式；每个字体同时写入中文和西文四个字体槽位，避免字体回退。文档标题以外的所有 Markdown 标题（H1-H6）都统一映射为一级标题样式。Markdown 粗体映射为“要点”字符样式。列表编号保留为普通文字，不生成 Word 自动编号和自动缩进。
 
@@ -57,7 +62,7 @@ date: 2026-09-18
   → normalized-md/v1 + 样式快照
   → Pandoc + 自包含参考 DOCX
   → OOXML 收尾（DC_ 样式、标题区、表格正文、页脚）
-  → 内置浏览器预览与本地产物下载
+  → A4 分页的内置浏览器预览与本地产物下载
 ```
 
 ## 本地运行

@@ -1,48 +1,82 @@
-# DOCX 样式编辑器与双栏工作区设计
+# DOCX 样式编辑器与 A4 工作区设计说明
 
 ## 目标
 
-本项目是一个完全本地运行的 Markdown → DOCX 转换器。转换流程不调用 AI、不上传用户文件，原始 Markdown 永不覆盖。Pandoc 负责内容转换，应用负责规范化、样式模板编译和确定性的 OOXML 收尾；内置浏览器预览只读取本地生成的 DOCX。
-
-## 用户工作流
-
-1. 用户选择 Markdown 文件和一个 DOCX 样式组合。
-2. 应用复制源文件到任务目录，创建可编辑的 Markdown 工作副本，并展示确定性结构建议。
-3. 左栏编辑工作副本；标题建议可以直接应用为文档标题或副标题。
-4. 右栏展示已生成的 DOCX，底部可折叠设置面板负责样式编辑和产物下载。
-5. 生成前执行完整性校验；失败时不生成 DOCX，源文件保持不变。
-
-## 规范化中间层
-
-Front Matter 支持 `title`、`subtitle`、`organization`、`department`、`authors` 和 `date`。元数据输出顺序固定为标题、 副标题、单位、部门、作者、日期。单位和部门字段独立保存，但共享 `organization-department` 视觉样式。未确认的建议只作为提示，不阻塞生成；应用动作直接更新工作副本。
-
-## 样式模型
-
-样式包保存 schema 版本和所有固定角色。文字角色通过 `FontSpec` 保存中文字体、西文字体、字号、粗体、斜体和颜色；段落角色通过 `ParagraphSpec` 保存对齐、缩进、间距、行距以及分页控制。样式包采用不可变版本，修改只创建新版本。旧版 `document-title`、`heading-1`、`body` 字段在读取时迁移，缺失角色补齐默认值。
-
-角色包括：`document-title`、`document-subtitle`、`organization-department`、`author`、`date`、`heading-1`、`body-paragraph`、`body-table`、`point`、`table-caption`、`figure-caption`、`footer`、`page`。
-
-## DOCX 输出契约
-
-参考模板生成自包含的 `DC_` 样式：`DC_DocumentTitle`、`DC_DocumentSubtitle`、`DC_OrganizationDepartment`、`DC_Author`、`DC_Date`、`DC_Heading1`、`DC_BodyParagraph`、`DC_TableBody`、`DC_Point`、`DC_TableCaption`、`DC_FigureCaption`、`DC_Footer`。最终语义不依赖系统中已有的 Title、Subtitle、Heading 1 或 Normal。
-
-每个字体同时写入 `w:eastAsia`、`w:ascii`、`w:hAnsi`、`w:cs`。源 Markdown 的全部 H1-H6（文档标题除外）映射到同一个一级标题样式；有序列表编号保留为普通文本并删除 `numPr`；粗体 run 映射到 `DC_Point` 字符样式。标题区按固定元数据顺序插入正文前。页脚使用奇偶页设置，内容为 `－ PAGE －`，奇数页右对齐、偶数页左对齐。
-
-输出文件名使用清理后的文档标题；标题缺失时使用源文件名。Windows 非法字符被替换，路径穿越字符不会进入文件名。
-
-## API 契约
-
-- `POST /api/jobs` 创建任务并立即进入可编辑状态。
-- `PUT /api/jobs/{job_id}/draft` 保存工作副本。
-- `POST /api/jobs/{job_id}/normalize-and-render` 接收 `source_markdown` 和 `confirmed_roles`，执行校验、规范化、渲染和产物登记。
-- `JobRecord` 持有 `output_name`、`draft_updated_at` 和 `source_hash`，产物列表使用实际文件名。
-
-所有产物只能从任务目录读取，下载接口拒绝路径穿越和未登记文件。
-
-## 前端布局
-
-工作区使用 42% / 58% 的左右双栏。左栏包含文件选择、可编辑 Markdown、修改状态和建议应用动作；右栏包含内置 DOCX 预览。完整设置面板固定在页面底部，可展开/折叠，分为标题区角色、一级标题、段落正文、表格正文、要点、图表题、页脚和页面设置。下载 DOCX、规范化 Markdown、审计报告和样式快照只在设置面板显示。窄屏时双栏纵向排列，设置面板仍固定在底部。
+在保持“本机、确定性、无 AI、原始 Markdown 不覆盖”的前提下，补齐中文正式文档常用的标题区元数据识别、摘要/关键词样式、自包含 DOCX 样式、悬浮设置面板和 A4 纸张预览。
 
 ## 非目标
 
-不新增模型调用、不自动运行 LibreOffice、不覆盖用户源文件、不使用 Word 自动编号、不把本机已有同名样式作为输出依赖。
+- 不引入 AI 推断、云端上传或远程文档服务。
+- 不把普通正文强制改写为摘要、副标题或关键词。
+- 不使用 LibreOffice 作为自动转换链路；它只保留为用户下载后的外部兼容工具。
+- 不通过裁剪内容模拟分页；预览必须使用 DOCX 的页面尺寸和 `docx-preview` 的 wrapper。
+
+## 数据与识别
+
+### 元数据模型
+
+规范化 Front Matter 的字段顺序固定为：
+
+1. `title`
+2. `subtitle`
+3. `organization`
+4. `department`
+5. `authors`
+6. `date`
+7. `abstract`
+8. `keywords`
+
+`abstract` 使用字符串，`keywords` 使用字符串数组。Front Matter 明确填写的字段优先于正文识别结果。
+
+### 正文识别规则
+
+规范化器在移除 Front Matter 后，只检查文档开头、首个标题/表格/代码块之前的非空块：
+
+- 已有 `title` 且没有 `subtitle` 时，识别第一条单行、长度不超过 80 个字符、不是标题/列表/表格/代码块、不是“摘要/关键词”标签且不以常见句末标点结束的短文本为副标题。
+- 识别 `摘要：`、`摘要:`、`关键词：`、`关键词:` 前缀。摘要保留为字符串；关键词按 `；`、`;`、`，`、`,`、换行拆分并去除空项。
+- 已存在对应 Front Matter 时，不再移动正文中的同类内容。
+- 被识别的块从交给 Pandoc 的正文中移除，并在规范化报告中记录 `from`、`to` 和 `line`。
+- 其他文本、图片、链接、表格和代码块保持不变；完整性校验继续比较图片和链接集合。
+
+## DOCX 样式
+
+新增两个段落角色：
+
+| 角色 | Word 样式 ID | 默认语义 |
+| --- | --- | --- |
+| `abstract` | `DC_Abstract` | 摘要：内容 |
+| `keywords` | `DC_Keywords` | 关键词：词1；词2 |
+
+两个角色进入“标题区角色”分组，沿用中文字体、西文字体、字号、粗体、斜体、对齐、缩进、行距和段前/段后编辑器控件。默认值分别复制段落正文的中文正式文档基线，关键词首行缩进为 0。
+
+所有页面默认使用 A4：宽 21.0 cm，高 29.7 cm；页边距保持现有 3.5/3.5/2.8/2.8 cm。A4 尺寸写入生成 DOCX 的 section，同时由预览工作台显示为独立白色纸张。
+
+## 元数据输出
+
+OOXML 收尾层在正文前按固定顺序插入标题区：标题、副标题、单位、部门、作者、日期、摘要、关键词。单位和部门继续共用 `DC_OrganizationDepartment`；作者数组用“、”连接。摘要和关键词分别使用 `DC_Abstract` 与 `DC_Keywords`，并由收尾层补上“摘要：”和“关键词：”标签。
+
+## 前端工作区
+
+- 左右工作区继续保持 42%/58%。
+- 设置面板从文档流中移出，默认折叠。
+- 折叠时显示固定在右下角的“⚙ 设置”悬浮按钮；展开后面板固定在底部，内部滚动，关闭按钮始终可见。
+- 面板标签为“样式角色”“页面设置”“下载产物”。生成按钮位于面板标题栏，下载链接只出现在产物标签。
+- 移动端面板宽度占满视口底部，工作区纵向排列。
+
+## 内置预览
+
+`DocxPreview` 使用 `docx-preview` 的 `inWrapper: true`、`breakPages: true`、页眉页脚渲染和 `ignoreLastRenderedPageBreak: false`。预览区是可独立滚动的灰绿色工作台，wrapper 内的每个页面按 A4 尺寸居中、留白、带轻阴影；不使用连续无纸张的长页面样式。
+
+## 测试夹具
+
+测试使用项目自生成的综合 Markdown，不依赖用户本地文件。夹具覆盖：Front Matter、自动副标题、摘要、关键词、多级标题、有序/无序列表、粗体、链接、图片、表格、代码块和中文/西文混排。测试只验证确定性结果、OOXML 样式 ID、A4 section 属性、预览渲染选项和可访问的前端交互。
+
+## 验收标准
+
+- 截图中的标题后短句能识别为副标题并出现在 `DC_DocumentSubtitle` 段落。
+- 摘要和关键词不会进入正文重复输出，且可分别通过 `DC_Abstract`、`DC_Keywords` 定位。
+- 新旧样式包均能读取；旧包补齐新角色并保持旧值，保存时仍生成不可变新版本。
+- 输出 DOCX 的 section 为 A4，`styles.xml` 含 `DC_Abstract`、`DC_Keywords` 和既有 `DC_` 样式。
+- 设置面板无需滚动到底部即可打开、切换标签和收起；默认状态为折叠。
+- 预览启用 wrapper 分页，A4 纸张显示为分开的白色页面。
+- Python 测试、前端测试、Ruff、Mypy、前端构建全部通过。

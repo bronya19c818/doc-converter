@@ -6,6 +6,7 @@ type StyleEditorProps = {
   disabled: boolean
   onSaved: (pack: StylePack) => void
   pack: StylePack
+  section?: 'roles' | 'page'
 }
 
 type RoleValue = {
@@ -23,6 +24,8 @@ const ROLE_LABELS: Record<string, string> = {
   'organization-department': '单位/部门',
   author: '作者',
   date: '日期',
+  abstract: '摘要',
+  keywords: '关键词',
   'heading-1': '一级标题',
   'body-paragraph': '段落正文',
   'body-table': '表格正文',
@@ -33,7 +36,7 @@ const ROLE_LABELS: Record<string, string> = {
 }
 
 const GROUPS: Array<{ title: string; roles: string[] }> = [
-  { title: '标题区角色', roles: ['document-title', 'document-subtitle', 'organization-department', 'author', 'date'] },
+  { title: '标题区角色', roles: ['document-title', 'document-subtitle', 'organization-department', 'author', 'date', 'abstract', 'keywords'] },
   { title: '一级标题', roles: ['heading-1'] },
   { title: '段落正文', roles: ['body-paragraph'] },
   { title: '表格正文', roles: ['body-table'] },
@@ -79,7 +82,7 @@ const LINE_SPACING_RULES: Array<{ value: LineSpacingRule; label: string }> = [
 
 const INDENT_KEYS = ['first_line_indent_pt', 'left_indent_pt', 'right_indent_pt'] as const
 
-export function StyleEditor({ disabled, onSaved, pack }: StyleEditorProps) {
+export function StyleEditor({ disabled, onSaved, pack, section = 'roles' }: StyleEditorProps) {
   const [roles, setRoles] = useState<RoleMap>(() => editableRolesFor(pack))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -110,7 +113,7 @@ export function StyleEditor({ disabled, onSaved, pack }: StyleEditorProps) {
         <h3>编辑样式属性</h3>
         <span>下次保存为 v{pack.version + 1}</span>
       </div>
-      {GROUPS.map((group) => (
+      {section === 'roles' ? GROUPS.map((group) => (
         <fieldset className="style-group" key={group.title}>
           <legend>{group.title}</legend>
           <div className="role-grid">
@@ -125,11 +128,11 @@ export function StyleEditor({ disabled, onSaved, pack }: StyleEditorProps) {
             ))}
           </div>
         </fieldset>
-      ))}
-      <fieldset className="style-group page-settings">
+      )) : null}
+      {section === 'page' ? <fieldset className="style-group page-settings">
         <legend>页面设置</legend>
         <div className="style-grid">
-          {(['margin_top_cm', 'margin_bottom_cm', 'margin_left_cm', 'margin_right_cm'] as const).map((key) => (
+          {(['page_width_cm', 'page_height_cm', 'margin_top_cm', 'margin_bottom_cm', 'margin_left_cm', 'margin_right_cm'] as const).map((key) => (
             <label key={key}>
               {pageLabel(key)}
               <input
@@ -144,7 +147,7 @@ export function StyleEditor({ disabled, onSaved, pack }: StyleEditorProps) {
             </label>
           ))}
         </div>
-      </fieldset>
+      </fieldset> : null}
       <button className="secondary-action" disabled={isDisabled} type="submit">保存样式新版本</button>
       {error ? <p className="error-message" role="alert">{error}</p> : null}
     </form>
@@ -359,10 +362,12 @@ function defaultRoleMap(): RoleMap {
   roles['organization-department'] = { ...roles['document-subtitle'] }
   roles.author = { ...roles['document-subtitle'] }
   roles.date = { ...roles['document-subtitle'] }
+  roles.abstract = { role_type: 'paragraph', font: { ...font }, paragraph: { ...paragraph, first_line_indent_pt: 32 } }
+  roles.keywords = { role_type: 'paragraph', font: { ...font }, paragraph: { ...paragraph, first_line_indent_pt: 0 } }
   roles['heading-1'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 32 } }
   roles['body-table'] = { role_type: 'paragraph', font: { ...font, size_pt: 14 }, paragraph: { ...paragraph, first_line_indent_pt: 0 } }
   roles.footer = { role_type: 'paragraph', font: { ...font, chinese_font: '宋体', size_pt: 14 }, paragraph: { ...paragraph, alignment: 'center' } }
-  roles.page = { role_type: 'page', page: { margin_top_cm: 3.5, margin_bottom_cm: 3.5, margin_left_cm: 2.8, margin_right_cm: 2.8 } }
+  roles.page = { role_type: 'page', page: { margin_top_cm: 3.5, margin_bottom_cm: 3.5, margin_left_cm: 2.8, margin_right_cm: 2.8, page_width_cm: 21, page_height_cm: 29.7 } }
   return roles
 }
 
@@ -466,6 +471,8 @@ function pageLabel(key: string): string {
     margin_bottom_cm: '下边距（厘米）',
     margin_left_cm: '左边距（厘米）',
     margin_right_cm: '右边距（厘米）',
+    page_width_cm: '页面宽度（厘米）',
+    page_height_cm: '页面高度（厘米）',
   }
   return names[key]
 }

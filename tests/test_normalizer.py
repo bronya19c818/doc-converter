@@ -80,3 +80,82 @@ def test_unconfirmed_heading_stays_in_working_copy_and_suggestion_is_not_require
     assert "# 项目方案" in result.markdown
     assert result.metadata == {}
     assert result.report["integrity"]["passed"] is True
+
+
+def test_leading_subtitle_abstract_and_keywords_are_extracted() -> None:
+    source = """---
+title: “人工智能+”行动下全国公共资源交易数智化发展实践与方向研究
+---
+
+基于14个省级“AI+公共资源交易”创新样本
+
+摘要：在安全、制度和生态四个方面推进智慧交易。
+
+关键词：人工智能；大模型；公共资源交易；数智化
+
+# 一、引言
+
+正文含有 **重点**、[链接](https://example.com) 和 ![图](images/a.png)。
+
+| 项目 | 数量 |
+| --- | ---: |
+| A | 10 |
+"""
+
+    result = normalize_markdown(source, filename="研究.md", confirmed_roles={})
+
+    assert result.metadata["subtitle"] == "基于14个省级“AI+公共资源交易”创新样本"
+    assert result.metadata["abstract"] == "在安全、制度和生态四个方面推进智慧交易。"
+    assert result.metadata["keywords"] == ["人工智能", "大模型", "公共资源交易", "数智化"]
+    assert "摘要：" not in result.markdown
+    assert "关键词：" not in result.markdown
+    assert "# 一、引言" in result.markdown
+    assert result.report["integrity"]["passed"] is True
+    assert {change["to"] for change in result.report["changes"]} >= {
+        "document-subtitle",
+        "abstract",
+        "keywords",
+    }
+
+
+def test_explicit_metadata_wins_over_leading_blocks() -> None:
+    source = """---
+title: 项目方案
+subtitle: Front Matter 副标题
+abstract: Front Matter 摘要
+keywords:
+  - 甲
+  - 乙
+---
+
+正文开头不应被移动。
+
+摘要：正文摘要不应覆盖。
+
+关键词：正文；关键词
+"""
+
+    result = normalize_markdown(source, filename="方案.md", confirmed_roles={})
+
+    assert result.metadata["subtitle"] == "Front Matter 副标题"
+    assert result.metadata["abstract"] == "Front Matter 摘要"
+    assert result.metadata["keywords"] == ["甲", "乙"]
+    assert "正文开头不应被移动。" in result.markdown
+    assert "摘要：正文摘要不应覆盖。" in result.markdown
+    assert "关键词：正文；关键词" in result.markdown
+
+
+def test_leading_plain_sentence_is_not_silently_moved_to_subtitle() -> None:
+    source = """---
+title: 项目方案
+---
+
+本方案将围绕业务目标、实施路径和保障措施展开说明。
+
+# 一、建设背景
+"""
+
+    result = normalize_markdown(source, filename="方案.md", confirmed_roles={})
+
+    assert "本方案将围绕业务目标、实施路径和保障措施展开说明。" in result.markdown
+    assert "subtitle" not in result.metadata

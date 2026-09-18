@@ -37,6 +37,10 @@ def test_new_style_pack_contains_all_roles_and_independent_font_slots() -> None:
     assert pack.roles["body-paragraph"]["paragraph"]["line_spacing_pt"] == 29
     assert pack.roles["body-paragraph"]["paragraph"]["first_line_indent_unit"] == "character"
     assert pack.roles["body-paragraph"]["paragraph"]["line_spacing_rule"] == "exact"
+    assert pack.roles["abstract"]["font"]["chinese_font"] == "仿宋"
+    assert pack.roles["keywords"]["paragraph"]["first_line_indent_pt"] == 0
+    assert pack.roles["page"]["page"]["page_width_cm"] == 21.0
+    assert pack.roles["page"]["page"]["page_height_cm"] == 29.7
 
 
 def test_legacy_style_pack_is_migrated_without_losing_custom_values(tmp_path) -> None:
@@ -63,6 +67,8 @@ def test_legacy_style_pack_is_migrated_without_losing_custom_values(tmp_path) ->
     assert migrated.roles["body-paragraph"]["paragraph"]["first_line_indent_pt"] == 28
     assert migrated.roles["body-paragraph"]["paragraph"]["first_line_indent_unit"] == "pt"
     assert migrated.roles["body-table"] == default_roles()["body-table"]
+    assert migrated.roles["abstract"] == default_roles()["abstract"]
+    assert migrated.roles["keywords"] == default_roles()["keywords"]
 
 
 def test_style_pack_migrates_indent_units_and_line_spacing_modes() -> None:

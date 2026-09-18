@@ -11,7 +11,11 @@ from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
 from doc_converter.docx_styles import ROLE_TO_STYLE_ID
-from doc_converter.normalizer import _extract_front_matter, _normalize_metadata
+from doc_converter.normalizer import (
+    _extract_front_matter,
+    _extract_leading_metadata,
+    _normalize_metadata,
+)
 
 _ORDERED_LIST = re.compile(r"^(\s*)(\d+)\.(\s+)")
 _HEADING_STYLE = re.compile(r"^Heading\s*[1-6]$", re.IGNORECASE)
@@ -20,9 +24,12 @@ _HEADING_STYLE = re.compile(r"^Heading\s*[1-6]$", re.IGNORECASE)
 def split_metadata(markdown: str) -> tuple[dict[str, Any], str]:
     """Remove Front Matter before Pandoc and return normalized metadata."""
 
-    raw_metadata, lines, _ = _extract_front_matter(markdown)
+    raw_metadata, lines, first_content_line = _extract_front_matter(markdown)
     metadata = _normalize_metadata(raw_metadata)
-    return metadata, "\n".join(lines).strip("\n") + "\n"
+    extracted, consumed, _ = _extract_leading_metadata(lines, metadata, first_content_line)
+    metadata.update(extracted)
+    body_lines = [line for index, line in enumerate(lines) if index not in consumed]
+    return metadata, "\n".join(body_lines).strip("\n") + "\n"
 
 
 def protect_ordered_list_literals(markdown: str) -> str:
@@ -101,6 +108,12 @@ def _insert_metadata(document: DocxDocument, metadata: dict[str, Any]) -> None:
         entries.append(("authors", "、".join(str(author) for author in authors), ROLE_TO_STYLE_ID["author"]))
     if isinstance(metadata.get("date"), str) and metadata["date"].strip():
         entries.append(("date", metadata["date"], ROLE_TO_STYLE_ID["date"]))
+    abstract = _strip_metadata_label(metadata.get("abstract"), "摘要")
+    if abstract:
+        entries.append(("abstract", f"摘要：{abstract}", ROLE_TO_STYLE_ID["abstract"]))
+    keywords = _keyword_text(metadata.get("keywords"))
+    if keywords:
+        entries.append(("keywords", f"关键词：{keywords}", ROLE_TO_STYLE_ID["keywords"]))
     if not entries:
         return
 
@@ -114,6 +127,22 @@ def _insert_metadata(document: DocxDocument, metadata: dict[str, Any]) -> None:
         paragraph = Paragraph(element, document)
         paragraph.style = style_id
         paragraph.add_run(text)
+
+
+def _strip_metadata_label(value: Any, label: str) -> str:
+    if not isinstance(value, str):
+        return ""
+    text = value.strip()
+    return re.sub(rf"^{re.escape(label)}\s*[:：]\s*", "", text).strip()
+
+
+def _keyword_text(value: Any) -> str:
+    if isinstance(value, list):
+        items = [str(item).strip() for item in value if str(item).strip()]
+        return "；".join(items)
+    if isinstance(value, str):
+        return _strip_metadata_label(value, "关键词")
+    return ""
 
 
 def _add_page_footers(document: DocxDocument) -> None:

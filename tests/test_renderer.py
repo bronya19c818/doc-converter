@@ -41,6 +41,38 @@ department: XX部门
     assert document.tables[0].cell(1, 1).text == "10"
 
 
+def test_renderer_extracts_title_area_blocks_from_raw_markdown(tmp_path) -> None:
+    markdown = """---
+title: 原始 Markdown 标题
+---
+
+基于本地样本的实施说明
+
+摘要：这是摘要内容。
+
+关键词：确定性转换；DOCX；A4
+
+# 一、正文
+
+正文内容。
+"""
+    output_path = tmp_path / "raw.docx"
+
+    render_docx(
+        markdown=markdown,
+        style_pack=create_style_pack(name="原始输入测试", format_id="docx"),
+        output_path=output_path,
+        work_dir=tmp_path / "work",
+    )
+
+    document = Document(output_path)
+    text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+    assert "基于本地样本的实施说明" in text
+    assert "摘要：这是摘要内容。" in text
+    assert "关键词：确定性转换；DOCX；A4" in text
+    assert "DC_DocumentSubtitle" in {paragraph.style.style_id for paragraph in document.paragraphs}
+
+
 def test_renderer_prefers_bundled_pandoc_when_available(tmp_path) -> None:
     bundled_root = tmp_path / "pandoc"
     bundled_root.mkdir()
@@ -61,6 +93,12 @@ authors:
   - 张三
   - 李四
 date: 2026-09-18
+abstract: 在安全、制度和生态四个方面推进智慧交易。
+keywords:
+  - 人工智能
+  - 大模型
+  - 公共资源交易
+  - 数智化
 ---
 
 # 一、建设背景
@@ -87,7 +125,20 @@ date: 2026-09-18
 
     document = Document(output_path)
     style_ids = {paragraph.style.style_id for paragraph in document.paragraphs}
-    assert {"DC_DocumentTitle", "DC_DocumentSubtitle", "DC_OrganizationDepartment", "DC_Author", "DC_Date"} <= style_ids
+    assert {
+        "DC_DocumentTitle",
+        "DC_DocumentSubtitle",
+        "DC_OrganizationDepartment",
+        "DC_Author",
+        "DC_Date",
+        "DC_Abstract",
+        "DC_Keywords",
+    } <= style_ids
+    text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+    assert "摘要：在安全、制度和生态四个方面推进智慧交易。" in text
+    assert "关键词：人工智能；大模型；公共资源交易；数智化" in text
+    assert round(document.sections[0].page_width.mm) == 210
+    assert round(document.sections[0].page_height.mm) == 297
     assert "DC_Heading1" in style_ids
     table_style_ids = {
         paragraph.style.style_id
@@ -111,6 +162,8 @@ date: 2026-09-18
         "DC_OrganizationDepartment",
         "DC_Author",
         "DC_Date",
+        "DC_Abstract",
+        "DC_Keywords",
         "DC_Heading1",
         "DC_BodyParagraph",
         "DC_TableBody",

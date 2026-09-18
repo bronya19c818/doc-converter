@@ -15,6 +15,8 @@ import { DocxPreview } from './DocxPreview'
 import { StyleEditor } from './StyleEditor'
 import './styles.css'
 
+type SettingsTab = 'styles' | 'page' | 'artifacts'
+
 export function App() {
   const [stylePacks, setStylePacks] = useState<StylePack[]>([])
   const [selectedPackId, setSelectedPackId] = useState('')
@@ -23,7 +25,8 @@ export function App() {
   const [originalMarkdown, setOriginalMarkdown] = useState('')
   const [job, setJob] = useState<Job | null>(null)
   const [newPackName, setNewPackName] = useState('')
-  const [settingsOpen, setSettingsOpen] = useState(true)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('styles')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [appliedRoles, setAppliedRoles] = useState<Record<string, string>>({})
@@ -198,55 +201,113 @@ export function App() {
             <div className="preview-frame"><DocxPreview documentUrl={artifactUrl(completedJob.id, completedJob.output_name ?? 'document.docx')} /></div>
           ) : (
             <div className="preview-empty">
-              <p>生成后可在此查看内置 DOCX 预览。</p>
-              <small>预览在浏览器内完成；不依赖 LibreOffice 自动转换。</small>
+              <p>生成后可在此查看 A4 分页 DOCX 预览。</p>
+              <small>预览按独立 A4 纸张显示，在浏览器内完成；不依赖 LibreOffice 自动转换。</small>
             </div>
           )}
         </section>
       </section>
 
       <section className={`settings-panel ${settingsOpen ? 'is-open' : 'is-collapsed'}`} aria-label="设置面板">
-        <button className="settings-toggle" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)} type="button">
-          {settingsOpen ? '收起设置' : '展开设置'}
-        </button>
-        {settingsOpen ? (
-          <div className="settings-content">
+        {!settingsOpen ? (
+          <button
+            aria-expanded={false}
+            aria-label="打开设置"
+            className="settings-fab"
+            onClick={() => setSettingsOpen(true)}
+            type="button"
+          >
+            ⚙ 设置
+          </button>
+        ) : (
+          <div className="settings-shell">
             <div className="settings-heading">
               <div>
                 <span>03</span>
                 <h2>样式与产物</h2>
               </div>
-              <button className="primary-action compact" disabled={busy || !job || !selectedPack || !sourceMarkdown.trim()} onClick={handleRender} type="button">生成 DOCX</button>
+              <div className="settings-heading-actions">
+                <button className="primary-action compact" disabled={busy || !job || !selectedPack || !sourceMarkdown.trim()} onClick={handleRender} type="button">生成 DOCX</button>
+                <button aria-label="收起设置" className="settings-close" onClick={() => setSettingsOpen(false)} type="button">收起设置</button>
+              </div>
             </div>
-            <label className="field-label" htmlFor="style-pack">DOCX 样式组合</label>
-            <select id="style-pack" onChange={(event) => setSelectedPackId(event.target.value)} value={selectedPackId}>
-              {stylePacks.map((pack) => <option key={pack.id} value={pack.id}>{pack.name} · v{pack.version}</option>)}
-            </select>
-            <form className="new-pack-form" onSubmit={handleCreateStylePack}>
-              <label className="field-label" htmlFor="new-style-pack">新建样式组合</label>
-              <div>
-                <input id="new-style-pack" onChange={(event) => setNewPackName(event.target.value)} placeholder="例如：公司报告" value={newPackName} />
-                <button disabled={busy || !newPackName.trim()} type="submit">保存</button>
-              </div>
-            </form>
-            {selectedPack ? (
-              <StyleEditor
-                disabled={busy}
-                key={`${selectedPack.id}-${selectedPack.version}`}
-                onSaved={(savedPack) => {
-                  setStylePacks((packs) => packs.map((pack) => (pack.id === savedPack.id ? savedPack : pack)))
-                  setSelectedPackId(savedPack.id)
-                }}
-                pack={selectedPack}
-              />
-            ) : null}
-            {completedJob ? (
-              <div className="artifact-links" aria-label="任务产物下载">
-                {completedJob.artifacts.map((artifact) => <a href={artifactUrl(completedJob.id, artifact)} key={artifact}>{artifact === completedJob.output_name ? '下载 DOCX' : `下载 ${artifact}`}</a>)}
-              </div>
-            ) : null}
+            <div aria-label="设置分类" className="settings-tabs" role="tablist">
+              {([
+                ['styles', '样式角色'],
+                ['page', '页面设置'],
+                ['artifacts', '下载产物'],
+              ] as const).map(([tab, label]) => (
+                <button
+                  aria-controls={`settings-panel-${tab}`}
+                  aria-selected={settingsTab === tab}
+                  className="settings-tab"
+                  id={`settings-tab-${tab}`}
+                  key={tab}
+                  onClick={() => setSettingsTab(tab)}
+                  role="tab"
+                  type="button"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="settings-content">
+              {settingsTab === 'styles' ? (
+                <div aria-labelledby="settings-tab-styles" id="settings-panel-styles" role="tabpanel">
+                  <label className="field-label" htmlFor="style-pack">DOCX 样式组合</label>
+                  <select id="style-pack" onChange={(event) => setSelectedPackId(event.target.value)} value={selectedPackId}>
+                    {stylePacks.map((pack) => <option key={pack.id} value={pack.id}>{pack.name} · v{pack.version}</option>)}
+                  </select>
+                  <form className="new-pack-form" onSubmit={handleCreateStylePack}>
+                    <label className="field-label" htmlFor="new-style-pack">新建样式组合</label>
+                    <div>
+                      <input id="new-style-pack" onChange={(event) => setNewPackName(event.target.value)} placeholder="例如：公司报告" value={newPackName} />
+                      <button disabled={busy || !newPackName.trim()} type="submit">保存</button>
+                    </div>
+                  </form>
+                  {selectedPack ? (
+                    <StyleEditor
+                      disabled={busy}
+                      key={`${selectedPack.id}-${selectedPack.version}-roles`}
+                      onSaved={(savedPack) => {
+                        setStylePacks((packs) => packs.map((pack) => (pack.id === savedPack.id ? savedPack : pack)))
+                        setSelectedPackId(savedPack.id)
+                      }}
+                      pack={selectedPack}
+                      section="roles"
+                    />
+                  ) : <p className="field-help">正在加载本机样式组合。</p>}
+                </div>
+              ) : null}
+              {settingsTab === 'page' ? (
+                <div aria-labelledby="settings-tab-page" id="settings-panel-page" role="tabpanel">
+                  {selectedPack ? (
+                    <StyleEditor
+                      disabled={busy}
+                      key={`${selectedPack.id}-${selectedPack.version}-page`}
+                      onSaved={(savedPack) => {
+                        setStylePacks((packs) => packs.map((pack) => (pack.id === savedPack.id ? savedPack : pack)))
+                        setSelectedPackId(savedPack.id)
+                      }}
+                      pack={selectedPack}
+                      section="page"
+                    />
+                  ) : <p className="field-help">正在加载本机样式组合。</p>}
+                </div>
+              ) : null}
+              {settingsTab === 'artifacts' ? (
+                <div aria-labelledby="settings-tab-artifacts" id="settings-panel-artifacts" role="tabpanel">
+                  <h3>下载产物</h3>
+                  {completedJob ? (
+                    <div className="artifact-links" aria-label="任务产物下载">
+                      {completedJob.artifacts.map((artifact) => <a href={artifactUrl(completedJob.id, artifact)} key={artifact}>{artifact === completedJob.output_name ? '下载 DOCX' : `下载 ${artifact}`}</a>)}
+                    </div>
+                  ) : <p className="field-help">生成 DOCX 后，规范化 Markdown、审计报告、样式快照和 DOCX 会出现在这里。</p>}
+                </div>
+              ) : null}
+            </div>
           </div>
-        ) : null}
+        )}
       </section>
     </main>
   )

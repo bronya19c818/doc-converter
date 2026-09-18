@@ -24,7 +24,8 @@ export function DocxPreview({ documentUrl }: DocxPreviewProps) {
         if (!cancelled) {
           await renderAsync(documentBlob, container, undefined, {
             breakPages: true,
-            inWrapper: false,
+            ignoreLastRenderedPageBreak: false,
+            inWrapper: true,
             renderHeaders: true,
             renderFooters: true,
           })
