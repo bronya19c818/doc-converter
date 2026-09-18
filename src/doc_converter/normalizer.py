@@ -10,6 +10,8 @@ from typing import Any
 
 import yaml
 
+from doc_converter.markdown_preprocess import preprocess_markdown
+
 _HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _IMAGE_PATTERN = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 _LINK_PATTERN = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
@@ -72,12 +74,18 @@ def normalize_markdown(
     """
 
     raw_metadata, content_lines, first_content_line = _extract_front_matter(source)
+    preprocessed = preprocess_markdown(
+        "\n".join(content_lines),
+        line_map=[first_content_line + offset for offset in range(len(content_lines))],
+    )
+    content_lines = preprocessed.text.splitlines()
     metadata = _normalize_metadata(raw_metadata)
-    changes: list[dict[str, str | int]] = []
+    changes: list[dict[str, str | int]] = list(preprocessed.changes)
     extracted, consumed, extracted_changes = _extract_leading_metadata(
         content_lines,
         metadata,
         first_content_line,
+        line_numbers=preprocessed.line_map,
     )
     metadata.update(extracted)
     changes.extend(extracted_changes)
@@ -86,7 +94,7 @@ def normalize_markdown(
     for offset, line in enumerate(content_lines):
         if offset in consumed:
             continue
-        source_line = first_content_line + offset
+        source_line = preprocessed.line_map[offset]
         match = _HEADING_PATTERN.match(line)
         confirmed_role = confirmed_roles.get(source_line)
         if match and confirmed_role in {"document-title", "document-subtitle"}:
@@ -180,6 +188,8 @@ def _extract_leading_metadata(
     lines: list[str],
     metadata: dict[str, Any],
     first_content_line: int,
+    *,
+    line_numbers: list[int] | None = None,
 ) -> tuple[dict[str, Any], set[int], list[dict[str, str | int]]]:
     """Extract strongly labelled title-area blocks without rewriting ordinary prose."""
 
@@ -208,7 +218,7 @@ def _extract_leading_metadata(
                 consumed.update(range(block_start, block_end))
                 changes.append(
                     {
-                        "line": first_content_line + block_start,
+                        "line": _source_line_number(line_numbers, first_content_line, block_start),
                         "from": "heading-1",
                         "to": "authors",
                     }
@@ -238,7 +248,7 @@ def _extract_leading_metadata(
             consumed.update(range(block_start, block_end))
             changes.append(
                 {
-                    "line": first_content_line + block_start,
+                    "line": _source_line_number(line_numbers, first_content_line, block_start),
                     "from": "labelled-paragraph",
                     "to": key,
                 }
@@ -253,7 +263,7 @@ def _extract_leading_metadata(
                 consumed.update(range(block_start, block_end))
                 changes.append(
                     {
-                        "line": first_content_line + block_start,
+                        "line": _source_line_number(line_numbers, first_content_line, block_start),
                         "from": "labelled-paragraph",
                         "to": role,
                     }
@@ -269,7 +279,7 @@ def _extract_leading_metadata(
                 consumed.update(range(block_start, block_end))
                 changes.append(
                     {
-                        "line": first_content_line + block_start,
+                        "line": _source_line_number(line_numbers, first_content_line, block_start),
                         "from": "leading-paragraph",
                         "to": role,
                     }
@@ -288,7 +298,7 @@ def _extract_leading_metadata(
             subtitle_seen = True
             changes.append(
                 {
-                    "line": first_content_line + block_start,
+                "line": _source_line_number(line_numbers, first_content_line, block_start),
                     "from": "leading-paragraph",
                     "to": "document-subtitle",
                 }
@@ -300,6 +310,12 @@ def _extract_leading_metadata(
         break
 
     return extracted, consumed, changes
+
+
+def _source_line_number(line_numbers: list[int] | None, first_content_line: int, index: int) -> int:
+    if line_numbers is not None and index < len(line_numbers):
+        return line_numbers[index]
+    return first_content_line + index
 
 
 def _leading_metadata_barrier(lines: list[str]) -> int:

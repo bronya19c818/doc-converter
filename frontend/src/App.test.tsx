@@ -21,6 +21,8 @@ describe('App', () => {
     expect(screen.getByText('本地转换，不调用 AI，也不上传文档。')).toBeInTheDocument()
     expect(await screen.findByLabelText('选择 Markdown 文件')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'DOCX 预览' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '生成' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '下载' })).toBeDisabled()
   })
 
   it('exposes the A-layout workspace and collapsible settings', async () => {
@@ -56,11 +58,13 @@ describe('App', () => {
     expect(screen.getByLabelText('段落正文首行缩进单位')).toHaveValue('character')
     expect(screen.getByRole('button', { name: '保存样式新版本' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收起设置' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '生成' })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: '下载产物' })).not.toBeInTheDocument()
     expect(screen.getByLabelText('Markdown 工作副本')).toBeInTheDocument()
     expect(screen.queryByText('请确认结构建议')).not.toBeInTheDocument()
   })
 
-  it('opens floating settings and switches between tabs', async () => {
+  it('keeps generation and downloads as floating actions beside settings', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -80,8 +84,10 @@ describe('App', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: '打开设置' }))
     expect(screen.getByRole('tab', { name: '样式角色' })).toHaveAttribute('aria-selected', 'true')
-    fireEvent.click(screen.getByRole('tab', { name: '下载产物' }))
-    expect(screen.getByRole('heading', { name: '下载产物' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '页面设置' })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: '下载产物' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '生成' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '下载' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收起设置' })).toBeInTheDocument()
   })
 

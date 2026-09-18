@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from 'react'
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
   artifactUrl,
@@ -15,7 +15,7 @@ import { DocxPreview } from './DocxPreview'
 import { StyleEditor } from './StyleEditor'
 import './styles.css'
 
-type SettingsTab = 'styles' | 'page' | 'artifacts'
+type SettingsTab = 'styles' | 'page'
 
 const SUGGESTION_ROLE_LABELS: Record<string, string> = {
   'document-title': '文档标题',
@@ -38,8 +38,11 @@ export function App() {
   const [newPackName, setNewPackName] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('styles')
+  const [downloadsOpen, setDownloadsOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const settingsTriggerRef = useRef<HTMLButtonElement>(null)
+  const settingsCloseRef = useRef<HTMLButtonElement>(null)
 
   const selectedPack = useMemo(
     () => stylePacks.find((pack) => pack.id === selectedPackId) ?? null,
@@ -83,6 +86,7 @@ export function App() {
     const file = event.target.files?.[0] ?? null
     setSourceFile(file)
     setJob(null)
+    setDownloadsOpen(false)
     setError(null)
     if (file) {
       const text = await file.text()
@@ -98,6 +102,7 @@ export function App() {
     if (!sourceFile || !selectedPack) return
     setBusy(true)
     setError(null)
+    setDownloadsOpen(false)
     try {
       const created = await createJob(sourceFile, selectedPack)
       setJob(created)
@@ -127,6 +132,7 @@ export function App() {
     if (!job || !selectedPack) return
     setBusy(true)
     setError(null)
+    setDownloadsOpen(false)
     try {
       setJob(await normalizeAndRender(job.id, sourceMarkdown, {}))
       setOriginalMarkdown(sourceMarkdown)
@@ -139,6 +145,16 @@ export function App() {
 
   function applySuggestion(suggestion: Suggestion) {
     setSourceMarkdown((current) => applyRoleToMarkdown(current, suggestion))
+  }
+
+  function openSettings() {
+    setSettingsOpen(true)
+    window.requestAnimationFrame(() => settingsCloseRef.current?.focus())
+  }
+
+  function closeSettings() {
+    setSettingsOpen(false)
+    window.requestAnimationFrame(() => settingsTriggerRef.current?.focus())
   }
 
   return (
@@ -216,13 +232,15 @@ export function App() {
         </section>
       </section>
 
-      <section className={`settings-panel ${settingsOpen ? 'is-open' : 'is-collapsed'}`} aria-label="设置面板">
+      <section className={`settings-panel ${settingsOpen ? 'is-open' : 'is-collapsed'}`} aria-label="设置面板" id="settings-panel-root">
         {!settingsOpen ? (
           <button
             aria-expanded={false}
+            aria-controls="settings-panel-root"
             aria-label="打开设置"
             className="settings-fab"
-            onClick={() => setSettingsOpen(true)}
+            onClick={openSettings}
+            ref={settingsTriggerRef}
             type="button"
           >
             ⚙ 设置
@@ -232,18 +250,16 @@ export function App() {
             <div className="settings-heading">
               <div>
                 <span>03</span>
-                <h2>样式与产物</h2>
+                <h2>样式设置</h2>
               </div>
               <div className="settings-heading-actions">
-                <button className="primary-action compact" disabled={busy || !job || !selectedPack || !sourceMarkdown.trim()} onClick={handleRender} type="button">生成 DOCX</button>
-                <button aria-label="收起设置" className="settings-close" onClick={() => setSettingsOpen(false)} type="button">收起设置</button>
+                <button aria-label="收起设置" className="settings-close" onClick={closeSettings} ref={settingsCloseRef} type="button">收起设置</button>
               </div>
             </div>
             <div aria-label="设置分类" className="settings-tabs" role="tablist">
               {([
                 ['styles', '样式角色'],
                 ['page', '页面设置'],
-                ['artifacts', '下载产物'],
               ] as const).map(([tab, label]) => (
                 <button
                   aria-controls={`settings-panel-${tab}`}
@@ -303,20 +319,43 @@ export function App() {
                   ) : <p className="field-help">正在加载本机样式组合。</p>}
                 </div>
               ) : null}
-              {settingsTab === 'artifacts' ? (
-                <div aria-labelledby="settings-tab-artifacts" id="settings-panel-artifacts" role="tabpanel">
-                  <h3>下载产物</h3>
-                  {completedJob ? (
-                    <div className="artifact-links" aria-label="任务产物下载">
-                      {completedJob.artifacts.map((artifact) => <a href={artifactUrl(completedJob.id, artifact)} key={artifact}>{artifact === completedJob.output_name ? '下载 DOCX' : `下载 ${artifact}`}</a>)}
-                    </div>
-                  ) : <p className="field-help">生成 DOCX 后，规范化 Markdown、审计报告、样式快照和 DOCX 会出现在这里。</p>}
-                </div>
-              ) : null}
             </div>
           </div>
         )}
       </section>
+
+      <div aria-label="快捷操作" className={`floating-actions ${settingsOpen ? 'is-settings-open' : ''}`}>
+        <button
+          aria-label="生成"
+          className="action-fab generate-fab"
+          disabled={busy || !job || !selectedPack || !sourceMarkdown.trim()}
+          onClick={handleRender}
+          type="button"
+        >
+          生成
+        </button>
+        <div className="download-action">
+          <button
+            aria-expanded={downloadsOpen}
+            aria-label="下载"
+            className="action-fab download-fab"
+            disabled={!completedJob}
+            onClick={() => setDownloadsOpen((open) => !open)}
+            type="button"
+          >
+            下载
+          </button>
+          {downloadsOpen && completedJob ? (
+            <div aria-label="任务产物下载" className="download-popover">
+              {completedJob.artifacts.map((artifact) => (
+                <a href={artifactUrl(completedJob.id, artifact)} key={artifact}>
+                  {artifact === completedJob.output_name ? '下载 DOCX' : `下载 ${artifact}`}
+                </a>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
     </main>
   )
 }

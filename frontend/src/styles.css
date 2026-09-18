@@ -31,8 +31,6 @@ input[type="file"], select, .new-pack-form input, .style-grid input, .style-grid
 .new-pack-form button { background: #e8f1ec; border: 1px solid #b9c9c1; border-radius: 4px; color: #155c52; min-width: 64px; }
 .secondary-action, .text-action { background: #e8f1ec; border: 1px solid #9db7aa; border-radius: 4px; color: #145d53; font-weight: 700; min-height: 36px; padding: 0 12px; }
 .text-action { background: transparent; border: 0; min-height: auto; padding: 0; text-decoration: underline; text-underline-offset: 3px; }
-.primary-action { background: #136c5f; border: 0; border-radius: 4px; color: white; cursor: pointer; font-weight: 700; min-height: 42px; padding: 0 16px; }
-.primary-action.compact { margin-left: auto; }
 button:disabled { cursor: not-allowed; opacity: .55; }
 
 .suggestions { border-top: 1px solid #dce5e0; margin-top: 22px; padding-top: 18px; }
@@ -54,8 +52,9 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .preview-empty small { line-height: 1.6; max-width: 380px; }
 
 .settings-panel { bottom: 24px; left: 50%; position: fixed; transform: translateX(-50%); width: min(1180px, calc(100vw - 48px)); z-index: 20; }
-.settings-panel.is-collapsed { pointer-events: none; }
+.settings-panel.is-collapsed { background: transparent; border: 0; box-shadow: none; left: auto; pointer-events: none; right: 24px; transform: none; width: auto; }
 .settings-fab { background: #136c5f; border: 0; border-radius: 999px; box-shadow: 0 12px 28px rgb(20 83 70 / 28%); color: #fff; font-weight: 700; min-height: 48px; padding: 0 20px; pointer-events: auto; position: absolute; right: 0; bottom: 0; white-space: nowrap; }
+.settings-panel.is-collapsed .settings-fab { position: static; }
 .settings-shell { background: rgb(255 255 255 / 98%); border: 1px solid #b9c9c1; border-radius: 12px; box-shadow: 0 22px 60px rgb(24 57 48 / 26%); max-height: min(82vh, 760px); overflow: hidden; pointer-events: auto; }
 .settings-heading { justify-content: space-between; margin: 0; padding: 18px 22px 15px; }
 .settings-heading-actions { align-items: center; display: flex; gap: 9px; }
@@ -63,7 +62,7 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .settings-tabs { background: #f4f8f5; border-bottom: 1px solid #dce5e0; display: flex; gap: 4px; overflow-x: auto; padding: 0 18px; }
 .settings-tab { background: transparent; border: 0; border-bottom: 3px solid transparent; color: #526862; font-weight: 700; min-height: 45px; padding: 0 16px; white-space: nowrap; }
 .settings-tab[aria-selected="true"] { border-bottom-color: #168474; color: #125e53; }
-.settings-tab:focus-visible, .settings-close:focus-visible, .settings-fab:focus-visible { outline: 3px solid rgb(22 132 116 / 30%); outline-offset: 2px; }
+.settings-tab:focus-visible, .settings-close:focus-visible, .settings-fab:focus-visible, .action-fab:focus-visible, .download-popover a:focus-visible { outline: 3px solid rgb(22 132 116 / 30%); outline-offset: 2px; }
 .settings-content { max-height: calc(min(82vh, 760px) - 134px); overflow: auto; padding: 18px 22px 26px; }
 .style-editor { border-top: 1px solid #dce5e0; margin-top: 24px; padding-top: 20px; }
 .style-editor-heading { align-items: baseline; display: flex; gap: 8px; justify-content: space-between; }
@@ -85,8 +84,13 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .checkbox-label { align-items: center; display: flex !important; gap: 6px !important; grid-template-columns: auto auto; padding-top: 20px; }
 .checkbox-label input { min-height: auto; width: auto; }
 .page-settings { margin-top: 14px; }
-.artifact-links { border-top: 1px solid #dce5e0; display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; padding-top: 15px; }
-.artifact-links a { color: #136c5f; font-size: 13px; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.floating-actions { align-items: center; bottom: 24px; display: flex; gap: 9px; position: fixed; right: 150px; z-index: 21; }
+.floating-actions.is-settings-open { bottom: auto; top: 24px; }
+.action-fab { background: #136c5f; border: 0; border-radius: 999px; box-shadow: 0 12px 28px rgb(20 83 70 / 28%); color: #fff; font-weight: 700; min-height: 48px; padding: 0 18px; white-space: nowrap; }
+.download-action { position: relative; }
+.download-popover { background: rgb(255 255 255 / 98%); border: 1px solid #b9c9c1; border-radius: 10px; bottom: calc(100% + 10px); box-shadow: 0 12px 28px rgb(24 57 48 / 18%); display: grid; gap: 2px; min-width: 190px; padding: 7px; position: absolute; right: 0; }
+.download-popover a { border-radius: 6px; color: #145d53; font-size: 13px; padding: 9px 11px; text-decoration: none; white-space: nowrap; }
+.download-popover a:hover { background: #e8f1ec; }
 
 @media (max-width: 900px) {
   .app-shell { padding: 25px 16px 110px; }
@@ -96,10 +100,12 @@ button:disabled { cursor: not-allowed; opacity: .55; }
   .preview-frame, .preview-empty { min-height: 360px; }
   .markdown-editor { min-height: 320px; }
   .settings-panel { bottom: 12px; width: calc(100vw - 24px); }
+  .settings-panel.is-collapsed { bottom: 12px; right: 12px; width: auto; }
   .settings-shell { max-height: 88vh; }
   .settings-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
   .settings-heading-actions { justify-content: space-between; width: 100%; }
-  .settings-heading-actions .primary-action.compact { margin-left: 0; }
   .settings-content { max-height: calc(88vh - 177px); padding: 16px; }
   .settings-fab { right: 0; }
+  .floating-actions { bottom: 12px; right: 126px; }
+  .floating-actions.is-settings-open { bottom: auto; right: 12px; top: 12px; }
 }

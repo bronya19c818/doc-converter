@@ -294,3 +294,170 @@ title: 表格方案
     assert "<table>" not in result.markdown
     assert "| 序号 | 因素 | 描述 |" in result.markdown
     assert "| 1 | 功能性 | 工具是否具备自动生成模板、智能检查等功能 |" in result.markdown
+
+
+def test_flat_atx_headings_are_releveled_from_chinese_and_numeric_numbering() -> None:
+    source = """# 采购数字化实施路径及典型场景
+
+# （一）实施路径
+
+# 1. 连接集成全量要素数据
+
+正文。
+
+# （1）数据治理要求
+
+细节。
+"""
+
+    result = normalize_markdown(source, filename="采购方案.md", confirmed_roles={})
+
+    assert "# 采购数字化实施路径及典型场景" in result.markdown
+    assert "## （一）实施路径" in result.markdown
+    assert "### 1. 连接集成全量要素数据" in result.markdown
+    assert "#### （1）数据治理要求" in result.markdown
+    assert any(change["to"] == "heading-level" for change in result.report["changes"])
+
+
+def test_markdown_second_pass_removes_toc_and_duplicate_standard_header() -> None:
+    source = """Q/GDW 1234—2024
+
+# 目次
+
+一、范围........1
+二、要求........2
+
+# 一、范围
+
+Q/GDW 1234—2024
+
+正文内容。
+"""
+
+    result = normalize_markdown(source, filename="标准.md", confirmed_roles={})
+
+    assert "# 目次" not in result.markdown
+    assert "一、范围........1" not in result.markdown
+    assert result.markdown.count("Q/GDW 1234—2024") == 1
+    assert any(change["to"] == "remove-toc" for change in result.report["changes"])
+    assert any(change["to"] == "remove-duplicate-standard-code" for change in result.report["changes"])
+
+
+def test_markdown_second_pass_repairs_an_obvious_cross_page_fragment() -> None:
+    source = """# 方案标题
+
+建立采购数字化目录动态调整机
+
+制，确保目录及时更新。
+"""
+
+    result = normalize_markdown(source, filename="方案.md", confirmed_roles={})
+
+    assert "建立采购数字化目录动态调整机制，确保目录及时更新。" in result.markdown
+    assert any(change["to"] == "repair-broken-paragraph" for change in result.report["changes"])
+
+
+def test_technical_standard_numbered_headings_support_bare_subheadings() -> None:
+    source = """Q/GDW 1234—2024
+
+# 1 范围
+
+# 2 规范性引用文件
+
+# 5 盘点分类
+
+# 5.1 盘点范围
+
+5.1.1 全面盘点
+"""
+
+    result = normalize_markdown(source, filename="标准.md", confirmed_roles={})
+
+    assert "## 5 盘点分类" in result.markdown
+    assert "### 5.1 盘点范围" in result.markdown
+    assert "#### 5.1.1 全面盘点" in result.markdown
+
+
+def test_flattened_heading_siblings_keep_the_same_level() -> None:
+    source = """# 方案
+
+# 1. 第一项
+
+正文。
+
+# 2. 第二项
+
+# （一）第一子项
+
+# （二）第二子项
+
+# （1）细分一
+
+# （2）细分二
+"""
+
+    result = normalize_markdown(source, filename="方案.md", confirmed_roles={})
+
+    assert "## 1. 第一项" in result.markdown
+    assert "## 2. 第二项" in result.markdown
+    assert "## （一）第一子项" in result.markdown
+    assert "## （二）第二子项" in result.markdown
+    assert "### （1）细分一" in result.markdown
+    assert "### （2）细分二" in result.markdown
+
+
+def test_preprocess_line_mapping_keeps_confirmed_roles_on_original_lines() -> None:
+    source = """---
+title: 原始标题
+---
+
+# 目次
+
+一、范围........1
+
+# 项目真实标题
+
+# 一、范围
+
+正文。
+"""
+
+    result = normalize_markdown(
+        source,
+        filename="项目.md",
+        confirmed_roles={9: "document-title"},
+    )
+
+    assert result.metadata["title"] == "项目真实标题"
+    assert "# 项目真实标题" not in result.markdown
+
+
+def test_toc_without_a_following_heading_and_fenced_code_are_preserved() -> None:
+    toc_source = """# 目次
+
+一、范围........1
+
+正文仍然存在。
+"""
+
+    toc_result = normalize_markdown(toc_source, filename="目录.md", confirmed_roles={})
+
+    assert "# 目次" in toc_result.markdown
+    assert "正文仍然存在。" in toc_result.markdown
+
+    source = """Q/GDW 1234—2024
+
+# 1 范围
+
+# 2 规范性引用文件
+
+```markdown
+Q/GDW 1234—2024
+# 5.1 示例字段
+5.1 示例字段
+```
+"""
+
+    result = normalize_markdown(source, filename="标准.md", confirmed_roles={})
+
+    assert "```markdown\nQ/GDW 1234—2024\n# 5.1 示例字段\n5.1 示例字段\n```" in result.markdown
