@@ -4,7 +4,7 @@ from pathlib import Path
 from docx import Document
 from fastapi.testclient import TestClient
 
-from doc_converter.api import create_app
+from doc_converter.api import _suggest_semantic_roles, create_app
 
 
 def test_local_api_creates_editable_job_saves_draft_and_renders_named_job(tmp_path) -> None:
@@ -50,6 +50,44 @@ def test_local_api_creates_editable_job_saves_draft_and_renders_named_job(tmp_pa
     assert docx.headers["content-type"].startswith(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
+
+
+def test_structure_suggestions_cover_all_title_area_roles() -> None:
+    source = """---
+title: 项目方案
+---
+
+项目实施说明
+
+摘要：这里是摘要内容。
+
+关键词：项目；实施；质量
+
+# 华软钢
+
+重庆市公共资源交易中心
+
+采购管理部
+
+2026年9月18日
+
+# 一、建设背景
+
+正文内容。
+"""
+
+    suggestions = _suggest_semantic_roles(source)
+
+    assert {item["role"] for item in suggestions} == {
+        "document-subtitle",
+        "abstract",
+        "keywords",
+        "author",
+        "organization",
+        "department",
+        "date",
+    }
+    assert {item["line"] for item in suggestions} == {5, 7, 9, 11, 13, 15, 17}
 
 
 def test_api_renders_generated_comprehensive_fixture_without_subtitle_confirmation(tmp_path) -> None:

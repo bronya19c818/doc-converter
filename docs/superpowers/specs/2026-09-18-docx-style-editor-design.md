@@ -26,7 +26,7 @@
 7. `abstract`
 8. `keywords`
 
-`abstract` 使用字符串，`keywords` 使用字符串数组。Front Matter 明确填写的字段优先于正文识别结果。
+`abstract` 使用字符串，`keywords` 使用字符串数组。Front Matter 明确填写的字段优先于正文识别结果。工作区结构建议支持将标题区候选直接应用为 `title`、`subtitle`、`abstract`、`keywords`、`authors`、`organization`、`department` 和 `date`；应用动作必须更新 Markdown 工作副本，而不是只在渲染请求中携带一次性确认值。
 
 ### 正文识别规则
 
@@ -42,22 +42,24 @@
 
 ## DOCX 样式
 
-新增两个段落角色：
+新增六个标题区角色：
 
 | 角色 | Word 样式 ID | 默认语义 |
 | --- | --- | --- |
 | `abstract-label` | `DC_AbstractLabel` | 摘要： |
-| `abstract` | `DC_Abstract` | 摘要内容 |
+| `abstract-content` | `DC_AbstractContent` | 摘要内容字符 |
+| `abstract` | `DC_Abstract` | 摘要内容段落 |
 | `keywords-label` | `DC_KeywordsLabel` | 关键词： |
-| `keywords` | `DC_Keywords` | 关键词内容 |
+| `keywords-content` | `DC_KeywordsContent` | 关键词内容字符 |
+| `keywords` | `DC_Keywords` | 关键词内容段落 |
 
-四个角色进入“标题区角色”分组；标签角色为字符样式，只编辑字体属性，内容角色沿用中文字体、西文字体、字号、粗体、斜体、对齐、缩进、行距和段前/段后编辑器控件。默认值分别复制段落正文的中文正式文档基线，关键词首行缩进为 0。
+六个角色进入“标题区角色”分组；标签和内容角色为字符样式，只编辑字体属性，摘要和关键词段落角色继续编辑对齐、缩进、行距和段前/段后。默认值分别复制段落正文的中文正式文档基线，关键词首行缩进为 0。
 
 所有页面默认使用 A4：宽 21.0 cm，高 29.7 cm；页边距保持现有 3.5/3.5/2.8/2.8 cm。A4 尺寸写入生成 DOCX 的 section，同时由预览工作台显示为独立白色纸张。
 
 ## 元数据输出
 
-OOXML 收尾层在正文前按固定顺序插入标题区：标题、副标题、单位、部门、作者、日期、摘要、关键词。单位和部门继续共用 `DC_OrganizationDepartment`；作者数组用“、”连接。摘要和关键词内容分别使用 `DC_Abstract` 与 `DC_Keywords`，标签运行分别使用 `DC_AbstractLabel` 与 `DC_KeywordsLabel`。
+OOXML 收尾层在正文前按固定顺序插入标题区：标题、副标题、单位、部门、作者、日期、摘要、关键词。单位和部门继续共用 `DC_OrganizationDepartment`；作者数组用“、”连接。摘要和关键词段落分别使用 `DC_Abstract` 与 `DC_Keywords`，标签运行分别使用 `DC_AbstractLabel` / `DC_KeywordsLabel`，内容运行分别使用 `DC_AbstractContent` / `DC_KeywordsContent`。
 
 ## 前端工作区
 

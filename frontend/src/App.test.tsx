@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { App } from './App'
+import { App, applyRoleToMarkdown } from './App'
 
 describe('App', () => {
   beforeEach(() => {
@@ -80,5 +80,40 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('tab', { name: '下载产物' }))
     expect(screen.getByRole('heading', { name: '下载产物' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '收起设置' })).toBeInTheDocument()
+  })
+
+  it('writes applied structure roles into Markdown front matter', () => {
+    const source = `---
+title: 项目方案
+---
+
+摘要：这里是摘要内容。
+
+关键词：项目；实施
+
+# 华软钢
+
+重庆市公共资源交易中心
+
+采购管理部
+
+2026年9月18日
+`
+
+    const withAuthor = applyRoleToMarkdown(source, { line: 9, role: 'author', value: '# 华软钢', score: 0.9, reason: '常见姓名' })
+    const withAbstract = applyRoleToMarkdown(withAuthor, { line: 5, role: 'abstract', value: '摘要：这里是摘要内容。', score: 0.9, reason: '摘要标签' })
+    const withKeywords = applyRoleToMarkdown(withAbstract, { line: 7, role: 'keywords', value: '关键词：项目；实施', score: 0.9, reason: '关键词标签' })
+    const withOrganization = applyRoleToMarkdown(withKeywords, { line: 11, role: 'organization', value: '重庆市公共资源交易中心', score: 0.9, reason: '单位关键词' })
+    const withDepartment = applyRoleToMarkdown(withOrganization, { line: 13, role: 'department', value: '采购管理部', score: 0.9, reason: '部门关键词' })
+    const result = applyRoleToMarkdown(withDepartment, { line: 15, role: 'date', value: '2026年9月18日', score: 0.9, reason: '日期' })
+
+    expect(result).toContain('authors:\n  - 华软钢')
+    expect(result).toContain('abstract: 这里是摘要内容。')
+    expect(result).toContain('keywords:\n  - 项目\n  - 实施')
+    expect(result).toContain('organization: 重庆市公共资源交易中心')
+    expect(result).toContain('department: 采购管理部')
+    expect(result).toContain('date: 2026年9月18日')
+    expect(result).not.toContain('摘要：这里是摘要内容。')
+    expect(result).not.toContain('# 华软钢')
   })
 })

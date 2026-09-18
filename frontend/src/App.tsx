@@ -17,6 +17,17 @@ import './styles.css'
 
 type SettingsTab = 'styles' | 'page' | 'artifacts'
 
+const SUGGESTION_ROLE_LABELS: Record<string, string> = {
+  'document-title': '文档标题',
+  'document-subtitle': '副标题',
+  author: '作者',
+  organization: '单位',
+  department: '部门',
+  date: '日期',
+  abstract: '摘要',
+  keywords: '关键词',
+}
+
 export function App() {
   const [stylePacks, setStylePacks] = useState<StylePack[]>([])
   const [selectedPackId, setSelectedPackId] = useState('')
@@ -29,7 +40,6 @@ export function App() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('styles')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [appliedRoles, setAppliedRoles] = useState<Record<string, string>>({})
 
   const selectedPack = useMemo(
     () => stylePacks.find((pack) => pack.id === selectedPackId) ?? null,
@@ -73,7 +83,6 @@ export function App() {
     const file = event.target.files?.[0] ?? null
     setSourceFile(file)
     setJob(null)
-    setAppliedRoles({})
     setError(null)
     if (file) {
       const text = await file.text()
@@ -119,7 +128,7 @@ export function App() {
     setBusy(true)
     setError(null)
     try {
-      setJob(await normalizeAndRender(job.id, sourceMarkdown, appliedRoles))
+      setJob(await normalizeAndRender(job.id, sourceMarkdown, {}))
       setOriginalMarkdown(sourceMarkdown)
     } catch (renderError) {
       setError(messageFor(renderError))
@@ -130,7 +139,6 @@ export function App() {
 
   function applySuggestion(suggestion: Suggestion) {
     setSourceMarkdown((current) => applyRoleToMarkdown(current, suggestion))
-    setAppliedRoles((roles) => ({ ...roles, [suggestion.line]: suggestion.role }))
   }
 
   return (
@@ -174,13 +182,13 @@ export function App() {
           {job?.suggestions.length ? (
             <section className="suggestions" aria-label="结构建议">
               <h3>结构建议</h3>
-              <p className="field-help">建议只是提示，不会阻止生成；应用后会直接更新工作副本。</p>
+              <p className="field-help">建议只是提示，不会阻止生成；应用后会把 role 写入 Markdown Front Matter，并移除原标题区行。</p>
               {job.suggestions.map((suggestion) => (
                 <article key={`${suggestion.line}-${suggestion.role}`}>
-                  <strong>第 {suggestion.line} 行：{suggestion.role === 'document-subtitle' ? '副标题' : '文档标题'}</strong>
+                  <strong>第 {suggestion.line} 行：{SUGGESTION_ROLE_LABELS[suggestion.role] ?? suggestion.role}</strong>
                   <p>{suggestion.reason}，置信度 {Math.round(suggestion.score * 100)}%。</p>
                   <button className="text-action" onClick={() => applySuggestion(suggestion)} type="button">
-                    应用为{suggestion.role === 'document-subtitle' ? '副标题' : '标题'}
+                    应用为{SUGGESTION_ROLE_LABELS[suggestion.role] ?? suggestion.role}
                   </button>
                 </article>
               ))}
@@ -313,19 +321,119 @@ export function App() {
   )
 }
 
-function applyRoleToMarkdown(markdown: string, suggestion: Suggestion): string {
+export function applyRoleToMarkdown(markdown: string, suggestion: Suggestion): string {
+  const key = metadataKeyForRole(suggestion.role)
+  if (!key) return markdown
+
   const lines = markdown.split(/\r?\n/)
-  const index = suggestion.line - 1
-  const selected = lines[index] ?? ''
-  const match = selected.match(/^#{1,6}\s+(.+?)\s*$/)
-  if (!match) return markdown
-  const key = suggestion.role === 'document-subtitle' ? 'subtitle' : 'title'
-  const metadata = `---\n${key}: ${match[1]}\n---`
-  const withoutLine = [...lines.slice(0, index), ...lines.slice(index + 1)].join('\n').replace(/^\n+/, '')
-  if (/^---\r?\n[\s\S]*?\r?\n---/.test(markdown)) {
-    return markdown.replace(/^---\r?\n/, `---\n${key}: ${match[1]}\n`).replace(/^(---\r?\n[\s\S]*?)\r?\n---/, '$1\n---').replace(selected, '')
+  const selectedIndex = findSuggestionLine(lines, suggestion)
+  if (selectedIndex < 0) return markdown
+  const rawValue = extractSuggestionValue(lines[selectedIndex], suggestion.role)
+  if (!rawValue) return markdown
+
+  const removeEnd = Math.min(
+    lines.length - 1,
+    selectedIndex + Math.max(0, (suggestion.end_line ?? suggestion.line) - suggestion.line),
+  )
+  const bodyLines = lines.filter((_, index) => index < selectedIndex || index > removeEnd)
+  const entry = formatMetadataEntry(key, rawValue)
+  const frontMatterStart = lines[0]?.trim() === '---' ? 0 : -1
+  if (frontMatterStart >= 0) {
+    const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === '---')
+    if (closingIndex > 0) {
+      const metadataLines = lines.slice(1, closingIndex)
+      const updatedMetadata = replaceMetadataEntry(metadataLines, key, entry)
+      const updatedLines = ['---', ...updatedMetadata, '---', ...bodyLines.slice(closingIndex + 1)]
+      return trimMarkdownLines(updatedLines)
+    }
   }
-  return `${metadata}\n\n${withoutLine}`
+  return trimMarkdownLines(['---', ...entry, '---', '', ...bodyLines])
+}
+
+function metadataKeyForRole(role: string): string | null {
+  const keys: Record<string, string> = {
+    'document-title': 'title',
+    'document-subtitle': 'subtitle',
+    author: 'authors',
+    authors: 'authors',
+    organization: 'organization',
+    department: 'department',
+    date: 'date',
+    abstract: 'abstract',
+    keywords: 'keywords',
+  }
+  return keys[role] ?? null
+}
+
+function findSuggestionLine(lines: string[], suggestion: Suggestion): number {
+  const expectedIndex = Math.min(lines.length - 1, Math.max(0, suggestion.line - 1))
+  if (suggestion.value && lineMatchesSuggestion(lines[expectedIndex] ?? '', suggestion.value)) {
+    return expectedIndex
+  }
+  if (!suggestion.value) return expectedIndex
+  const normalizedValue = suggestion.value.trim()
+  const fallback = lines.findIndex((line) => line.trim() === normalizedValue)
+  if (fallback >= 0) return fallback
+  return lines.findIndex((line) => line.includes(normalizedValue))
+}
+
+function lineMatchesSuggestion(line: string, value: string): boolean {
+  const normalizedLine = line.trim()
+  const normalizedValue = value.trim()
+  return normalizedLine === normalizedValue || normalizedLine.includes(normalizedValue)
+}
+
+function extractSuggestionValue(line: string, role: string): string {
+  const withoutHeading = line.trim().replace(/^#{1,6}\s+/, '')
+  const withoutLabel = withoutHeading.replace(
+    /^(摘要|关键词|作者单位|作者|单位|机构|组织|部门|所属部门|日期|时间|发布时间)\s*[:：]\s*/,
+    '',
+  )
+  if (role === 'keywords') {
+    return withoutLabel
+      .split(/[；;，,\n]+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .join('\n')
+  }
+  return withoutLabel.trim()
+}
+
+function formatMetadataEntry(key: string, value: string): string[] {
+  if (key === 'authors' || key === 'keywords') {
+    const values = value.split(/[、，,;；\n]+/).map((item) => item.trim()).filter(Boolean)
+    return [
+      `${key}:`,
+      ...values.map((item) => `  - ${item}`),
+    ]
+  }
+  return [`${key}: ${value}`]
+}
+
+function replaceMetadataEntry(metadataLines: string[], key: string, entry: string[]): string[] {
+  const result: string[] = []
+  let index = 0
+  let replaced = false
+  while (index < metadataLines.length) {
+    const line = metadataLines[index]
+    if (new RegExp(`^${key}:\\s*`).test(line)) {
+      if (!replaced) {
+        result.push(...entry)
+        replaced = true
+      }
+      index += 1
+      while (index < metadataLines.length && /^\s+-\s+/.test(metadataLines[index])) index += 1
+      continue
+    }
+    result.push(line)
+    index += 1
+  }
+  if (!replaced) result.push(...entry)
+  return result
+}
+
+function trimMarkdownLines(lines: string[]): string {
+  return `${lines.join('\n').replace(/^\n+/, '').replace(/\n+$/, '')}\n`
 }
 
 function messageFor(error: unknown): string {

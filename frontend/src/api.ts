@@ -11,6 +11,8 @@ export type Suggestion = {
   role: string
   score: number
   reason: string
+  value?: string
+  end_line?: number
 }
 
 export type Job = {

@@ -231,6 +231,51 @@ XX公司
     assert "# 项目标题" in result.markdown
 
 
+def test_h1_name_after_front_matter_title_is_extracted_as_author() -> None:
+    source = """---
+title: 标题
+---
+
+# 华软钢
+
+重庆市公共资源交易中心
+
+采购管理部
+
+# 一、正文
+"""
+
+    result = normalize_markdown(source, filename="标题.md", confirmed_roles={})
+
+    assert result.metadata["authors"] == ["华软钢"]
+    assert "# 华软钢" not in result.markdown
+    assert "# 一、正文" in result.markdown
+
+
+def test_title_area_date_is_extracted_without_explicit_front_matter() -> None:
+    source = """---
+title: 标题
+---
+
+张三丰
+
+某某科技有限公司
+
+综合办公室
+
+2026年9月18日
+
+# 一、正文
+"""
+
+    result = normalize_markdown(source, filename="标题.md", confirmed_roles={})
+
+    assert result.metadata["authors"] == ["张三丰"]
+    assert result.metadata["organization"] == "某某科技有限公司"
+    assert result.metadata["department"] == "综合办公室"
+    assert result.metadata["date"] == "2026年9月18日"
+
+
 def test_raw_html_table_is_normalized_with_a_caption_boundary() -> None:
     source = """---
 title: 表格方案

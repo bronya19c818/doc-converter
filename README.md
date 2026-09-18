@@ -7,7 +7,7 @@
 - A 方案双栏工作区：左侧可编辑 Markdown 工作副本，右侧内置 DOCX 预览。
 - 样式设置默认折叠为右下角悬浮按钮，需要时展开为固定底部面板，并按“样式角色 / 页面设置 / 下载产物”分标签管理；样式组合支持保存不可变新版本。
 - 内置预览按 A4 纸张显示分页页面，预览在浏览器内完成，不需要滚动到页面底部才能打开设置。
-- 结构建议只作提示，可直接应用为文档标题或副标题，不再阻塞生成。
+- 结构建议是可执行的确定性动作：可将标题区内容应用为文档标题、副标题、摘要、关键词、作者、单位、部门或日期；应用会直接写入 Markdown Front Matter 并从标题区移除原行，不再阻塞生成。
 - 任务产物包括 DOCX、规范化 Markdown、审计报告和样式快照。
 - Pandoc 随 Windows 发布包分发；LibreOffice 不参与自动转换，Word 仅作为用户显式进行高保真复核时的可选工具。
 
@@ -33,13 +33,15 @@ keywords:
 
 元数据顺序固定为：标题 → 副标题 → 单位 → 部门 → 作者 → 日期 → 摘要 → 关键词。Front Matter 没有填写副标题时，规范化器会识别标题后的短文本行；也会识别正文中的 `摘要：`、`摘要:`、`关键词：` 和 `关键词:`。标题区附近的 `作者：`、`作者单位：`、`单位：`、`部门：` 等显式标签优先；没有标签时，会对标题后的短姓名行（内置常见百家姓）以及包含“公司、中心、部、处、科、室”等机构/部门关键词的短行进行保守识别。`organization` 和 `department` 是两个独立字段，但在 DOCX 中共用“单位/部门”视觉样式；多个作者按数组顺序用“、”合并。识别出的摘要、关键词、作者和单位不会重复进入正文。
 
+工作区的“结构建议”会显示原始行号和可执行的“应用为……”按钮。应用动作不是只在本次渲染时记忆确认，而是把对应 role 真正写回工作副本的 Front Matter：`author` 写为 `authors` 数组，`keywords` 写为关键词数组，其余角色写为对应标量字段。建议带有原文锚点，所以连续应用多个动作时不会因前面删除行而错位；保存工作副本后，后端会重新扫描剩余未标注内容。
+
 ## DOCX 样式库
 
 每个样式组合都包含以下角色：
 
-`document-title`、`document-subtitle`、`organization-department`、`author`、`date`、`abstract-label`、`abstract`、`keywords-label`、`keywords`、`heading-1`、`body-paragraph`、`body-table`、`point`、`table-caption`、`figure-caption`、`footer`、`page`。
+`document-title`、`document-subtitle`、`organization-department`、`author`、`date`、`abstract-label`、`abstract-content`、`abstract`、`keywords-label`、`keywords-content`、`keywords`、`heading-1`、`body-paragraph`、`body-table`、`point`、`table-caption`、`figure-caption`、`footer`、`page`。
 
-摘要和关键词各自拆成“标签字符样式”和“内容段落样式”：`摘要：` / `关键词：` 使用 `abstract-label` / `keywords-label`，后面的内容分别使用 `abstract` / `keywords`。Markdown 中的 `表1……`、`表一……` 等表题在表格前会映射为 `table-caption`；简单 HTML `<table>` 也会在转换前确定性转成可编辑 Markdown 表格。
+摘要和关键词各自拆成“标签字符样式、内容字符样式、内容段落样式”：`摘要：` / `关键词：` 使用 `abstract-label` / `keywords-label`，后面的内容分别使用 `abstract-content` / `keywords-content`，所在段落使用 `abstract` / `keywords`。Markdown 中的 `表1……`、`表一……` 等表题在表格前会映射为 `table-caption`；简单 HTML `<table>` 也会在转换前确定性转成可编辑 Markdown 表格。
 
 文字角色可以分别设置中文字体、西文字体、字号、粗体、斜体、颜色；段落角色还可以设置对齐、缩进、行距、段前段后和分页控制。默认值按正式中文文档模板设置：页面为 A4（21.0 cm × 29.7 cm），上下边距 3.5 cm、左右边距 2.8 cm，标题宋体二号，标题区楷体三号，一级标题黑体三号，段落正文仿宋三号且首行缩进 32 pt、固定行距 29 pt，表格正文仿宋四号无缩进，要点楷体三号加粗，页脚宋体四号。
 
@@ -49,7 +51,7 @@ keywords:
 
 生成的 DOCX 自包含 `DC_` 前缀样式：
 
-`DC_DocumentTitle`、`DC_DocumentSubtitle`、`DC_OrganizationDepartment`、`DC_Author`、`DC_Date`、`DC_Abstract`、`DC_Keywords`、`DC_Heading1`、`DC_BodyParagraph`、`DC_TableBody`、`DC_Point`、`DC_TableCaption`、`DC_FigureCaption`、`DC_Footer`。
+`DC_DocumentTitle`、`DC_DocumentSubtitle`、`DC_OrganizationDepartment`、`DC_Author`、`DC_Date`、`DC_AbstractLabel`、`DC_AbstractContent`、`DC_Abstract`、`DC_KeywordsLabel`、`DC_KeywordsContent`、`DC_Keywords`、`DC_Heading1`、`DC_BodyParagraph`、`DC_TableBody`、`DC_Point`、`DC_TableCaption`、`DC_FigureCaption`、`DC_Footer`。
 
 输出不依赖电脑上已有的同名 Word 样式；每个字体同时写入中文和西文四个字体槽位，避免字体回退。文档标题以外的所有 Markdown 标题（H1-H6）都统一映射为一级标题样式。Markdown 粗体映射为“要点”字符样式。列表编号保留为普通文字，不生成 Word 自动编号和自动缩进。
 

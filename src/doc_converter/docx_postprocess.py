@@ -150,6 +150,7 @@ def _insert_metadata(document: DocxDocument, metadata: dict[str, Any]) -> None:
             content=abstract,
             paragraph_style=ROLE_TO_STYLE_ID["abstract"],
             label_style=ROLE_TO_STYLE_ID["abstract-label"],
+            content_style=ROLE_TO_STYLE_ID["abstract-content"],
         )
         insert_index += 1
     if keywords:
@@ -161,6 +162,7 @@ def _insert_metadata(document: DocxDocument, metadata: dict[str, Any]) -> None:
             content=keywords,
             paragraph_style=ROLE_TO_STYLE_ID["keywords"],
             label_style=ROLE_TO_STYLE_ID["keywords-label"],
+            content_style=ROLE_TO_STYLE_ID["keywords-content"],
         )
 
 
@@ -173,6 +175,7 @@ def _insert_labeled_metadata_paragraph(
     content: str,
     paragraph_style: str,
     label_style: str,
+    content_style: str,
 ) -> None:
     element = OxmlElement("w:p")
     body.insert(insert_index, element)
@@ -180,7 +183,8 @@ def _insert_labeled_metadata_paragraph(
     paragraph.style = paragraph_style
     label_run = paragraph.add_run(label)
     label_run.style = label_style
-    paragraph.add_run(content)
+    content_run = paragraph.add_run(content)
+    content_run.style = content_style
 
 
 def _strip_metadata_label(value: Any, label: str) -> str:

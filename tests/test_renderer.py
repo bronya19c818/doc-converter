@@ -121,6 +121,8 @@ title: AI模型助力提升物资采购质量
     }
     assert any(run.style and run.style.style_id == "DC_AbstractLabel" for paragraph in document.paragraphs for run in paragraph.runs)
     assert any(run.style and run.style.style_id == "DC_KeywordsLabel" for paragraph in document.paragraphs for run in paragraph.runs)
+    assert any(run.style and run.style.style_id == "DC_AbstractContent" for paragraph in document.paragraphs for run in paragraph.runs)
+    assert any(run.style and run.style.style_id == "DC_KeywordsContent" for paragraph in document.paragraphs for run in paragraph.runs)
     assert {
         paragraph.style.style_id
         for row in table.rows
@@ -220,8 +222,10 @@ keywords:
         "DC_Date",
         "DC_AbstractLabel",
         "DC_Abstract",
+        "DC_AbstractContent",
         "DC_KeywordsLabel",
         "DC_Keywords",
+        "DC_KeywordsContent",
         "DC_Heading1",
         "DC_BodyParagraph",
         "DC_TableBody",

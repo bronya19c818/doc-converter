@@ -41,6 +41,8 @@ def test_new_style_pack_contains_all_roles_and_independent_font_slots() -> None:
     assert pack.roles["keywords"]["paragraph"]["first_line_indent_pt"] == 0
     assert pack.roles["abstract-label"]["role_type"] == "character"
     assert pack.roles["keywords-label"]["role_type"] == "character"
+    assert pack.roles["abstract-content"]["role_type"] == "character"
+    assert pack.roles["keywords-content"]["role_type"] == "character"
     assert pack.roles["page"]["page"]["page_width_cm"] == 21.0
     assert pack.roles["page"]["page"]["page_height_cm"] == 29.7
 
@@ -73,6 +75,8 @@ def test_legacy_style_pack_is_migrated_without_losing_custom_values(tmp_path) ->
     assert migrated.roles["keywords"] == default_roles()["keywords"]
     assert migrated.roles["abstract-label"] == default_roles()["abstract-label"]
     assert migrated.roles["keywords-label"] == default_roles()["keywords-label"]
+    assert migrated.roles["abstract-content"] == default_roles()["abstract-content"]
+    assert migrated.roles["keywords-content"] == default_roles()["keywords-content"]
 
 
 def test_style_pack_migrates_indent_units_and_line_spacing_modes() -> None:

@@ -18,12 +18,26 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from doc_converter.filename import safe_docx_filename
-from doc_converter.normalizer import normalize_markdown
+from doc_converter.normalizer import (
+    _HEADING_PATTERN,
+    _LABEL_PATTERN,
+    _NUMBERED_HEADING_PATTERN,
+    _extract_front_matter,
+    _infer_title_area_role,
+    _is_date_candidate,
+    _is_subtitle_candidate,
+    _leading_metadata_barrier,
+    _metadata_label_value,
+    _non_empty_blocks,
+    normalize_markdown,
+)
 from doc_converter.renderer import RendererError, render_docx
 from doc_converter.style_library import StyleLibrary, StylePack, create_style_pack
 from doc_converter.style_schema import migrate_roles
 
-_NUMBERED_TITLE = re.compile(r"^(?:[一二三四五六七八九十]+、|（[^）]+）|\d+[.、])")
+_SUGGESTION_TITLE_AREA_LABEL_PATTERN = re.compile(
+    r"^\s*(作者单位|作者|单位|机构|组织|部门|所属部门|日期|时间|发布时间)\s*[:：]\s*(.*)$"
+)
 
 
 class StylePackRequest(BaseModel):
@@ -312,38 +326,145 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
 
 
 def _suggest_semantic_roles(source: str) -> list[dict[str, Any]]:
+    """Return deterministic, actionable title-area role suggestions.
+
+    Suggestions deliberately include the source line and the original text for
+    every role except the legacy first-title suggestion.  The UI uses that text
+    as an anchor after an earlier action removes a line and shifts line numbers.
+    """
+
+    try:
+        raw_metadata, content_lines, first_content_line = _extract_front_matter(source)
+    except ValueError:
+        raw_metadata, content_lines, first_content_line = {}, source.splitlines(), 1
+
+    metadata = {str(key): value for key, value in raw_metadata.items()}
     suggestions: list[dict[str, Any]] = []
-    title_found = False
-    for line_number, line in enumerate(source.splitlines(), start=1):
-        match = re.match(r"^#\s+(.+?)\s*$", line)
-        if match:
-            title = match.group(1)
-            if not _NUMBERED_TITLE.match(title) and not title_found:
-                suggestions.append(
-                    {
-                        "line": line_number,
-                        "role": "document-title",
-                        "score": 0.9,
-                        "reason": "首个无编号 H1",
-                    }
-                )
+    seen_roles: set[str] = set()
+    title_found = bool(metadata.get("title"))
+
+    def present(role: str) -> bool:
+        key = {"document-title": "title", "document-subtitle": "subtitle", "author": "authors"}.get(
+            role, role
+        )
+        return bool(metadata.get(key)) or role in seen_roles
+
+    def add(
+        *,
+        line: int,
+        role: str,
+        score: float,
+        reason: str,
+        value: str | None = None,
+        end_line: int | None = None,
+    ) -> None:
+        if present(role):
+            return
+        item: dict[str, Any] = {"line": line, "role": role, "score": score, "reason": reason}
+        if value is not None and role != "document-title":
+            item["value"] = value
+        if end_line is not None and end_line != line and role != "document-title":
+            item["end_line"] = end_line
+        suggestions.append(item)
+        seen_roles.add(role)
+
+    barrier = _leading_metadata_barrier(content_lines)
+    for block_start, block_end, block_lines in _non_empty_blocks(content_lines[:barrier]):
+        block_text = "\n".join(line.strip() for line in block_lines).strip()
+        line_number = first_content_line + block_start
+        end_line = first_content_line + block_end - 1
+        heading_match = _HEADING_PATTERN.match(block_text)
+
+        if len(block_lines) == 1 and heading_match:
+            heading_text = heading_match.group(2).strip()
+            if _NUMBERED_HEADING_PATTERN.match(block_text):
+                break
+            if not title_found:
+                add(line=line_number, role="document-title", score=0.9, reason="首个无编号 H1")
                 title_found = True
                 continue
-            if title_found and not _NUMBERED_TITLE.match(title):
-                suggestions.append(
-                    {
-                        "line": line_number,
-                        "role": "document-subtitle",
-                        "score": 0.75,
-                        "reason": "标题后的无编号 H1，可作为副标题",
-                    }
+            if _infer_title_area_role(heading_text) == "authors":
+                add(
+                    line=line_number,
+                    role="author",
+                    score=0.92,
+                    reason="标题区短姓名 H1，可作为作者",
+                    value=block_text,
                 )
-            if title_found:
-                return suggestions
-        if line.strip():
-            if title_found:
-                return suggestions
-            break
+                continue
+            if _is_subtitle_candidate([heading_text]):
+                add(
+                    line=line_number,
+                    role="document-subtitle",
+                    score=0.75,
+                    reason="标题后的无编号 H1，可作为副标题",
+                    value=block_text,
+                )
+                continue
+            continue
+
+        label_match = _LABEL_PATTERN.match(block_text)
+        if label_match and title_found:
+            role = "abstract" if label_match.group(1) == "摘要" else "keywords"
+            add(
+                line=line_number,
+                role=role,
+                score=0.98,
+                reason=f"检测到{label_match.group(1)}标签",
+                value=block_text,
+                end_line=end_line,
+            )
+            continue
+
+        title_area_match = _SUGGESTION_TITLE_AREA_LABEL_PATTERN.match(block_text)
+        if title_area_match and title_found:
+            label = title_area_match.group(1)
+            value = title_area_match.group(2).strip()
+            if label in {"日期", "时间", "发布时间"}:
+                role = "date"
+            else:
+                mapped_role, _ = _metadata_label_value(label, value)
+                role = {"authors": "author"}.get(mapped_role or "", mapped_role or "")
+            if role and value:
+                add(
+                    line=line_number,
+                    role=role,
+                    score=0.98,
+                    reason=f"检测到{label}标签",
+                    value=block_text,
+                    end_line=end_line,
+                )
+                continue
+
+        if title_found and len(block_lines) == 1:
+            value = block_text
+            inferred_role = _infer_title_area_role(value)
+            if inferred_role == "authors":
+                inferred_role = "author"
+            if inferred_role is None and _is_date_candidate(value):
+                inferred_role = "date"
+            if inferred_role:
+                add(
+                    line=line_number,
+                    role=inferred_role,
+                    score=0.9,
+                    reason="标题区短行符合确定性识别规则",
+                    value=value,
+                )
+                continue
+            if _is_subtitle_candidate(block_lines):
+                add(
+                    line=line_number,
+                    role="document-subtitle",
+                    score=0.75,
+                    reason="标题后的短文本，可作为副标题",
+                    value=value,
+                )
+                continue
+
+        # An ordinary paragraph is the end of the title area.  Do not scan
+        # later body text for names or organization markers.
+        break
     return suggestions
 
 

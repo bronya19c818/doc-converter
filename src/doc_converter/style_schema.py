@@ -20,8 +20,10 @@ ROLE_KEYS = (
     "date",
     "abstract",
     "abstract-label",
+    "abstract-content",
     "keywords",
     "keywords-label",
+    "keywords-content",
     "heading-1",
     "body-paragraph",
     "body-table",
@@ -145,6 +147,10 @@ def default_roles() -> dict[str, dict[str, Any]]:
             role_type="character",
             font={"chinese_font": "黑体", "western_font": "Arial", "size_pt": 16, "bold": True},
         ),
+        "abstract-content": _role(
+            role_type="character",
+            font={"chinese_font": "仿宋", "western_font": "Times New Roman", "size_pt": 16},
+        ),
         "keywords": _role(
             font={"chinese_font": "仿宋", "western_font": "Times New Roman", "size_pt": 16},
             paragraph={"first_line_indent_pt": 0, "line_spacing_pt": 29},
@@ -152,6 +158,10 @@ def default_roles() -> dict[str, dict[str, Any]]:
         "keywords-label": _role(
             role_type="character",
             font={"chinese_font": "黑体", "western_font": "Arial", "size_pt": 16, "bold": True},
+        ),
+        "keywords-content": _role(
+            role_type="character",
+            font={"chinese_font": "仿宋", "western_font": "Times New Roman", "size_pt": 16},
         ),
         "heading-1": _role(
             font={"chinese_font": "黑体", "western_font": "Arial", "size_pt": 16, "bold": True},

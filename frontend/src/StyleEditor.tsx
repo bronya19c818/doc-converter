@@ -26,8 +26,10 @@ const ROLE_LABELS: Record<string, string> = {
   date: '日期',
   abstract: '摘要',
   'abstract-label': '摘要标签',
+  'abstract-content': '摘要内容',
   keywords: '关键词',
   'keywords-label': '关键词标签',
+  'keywords-content': '关键词内容',
   'heading-1': '一级标题',
   'body-paragraph': '段落正文',
   'body-table': '表格正文',
@@ -38,7 +40,7 @@ const ROLE_LABELS: Record<string, string> = {
 }
 
 const GROUPS: Array<{ title: string; roles: string[] }> = [
-  { title: '标题区角色', roles: ['document-title', 'document-subtitle', 'organization-department', 'author', 'date', 'abstract-label', 'abstract', 'keywords-label', 'keywords'] },
+  { title: '标题区角色', roles: ['document-title', 'document-subtitle', 'organization-department', 'author', 'date', 'abstract-label', 'abstract-content', 'abstract', 'keywords-label', 'keywords-content', 'keywords'] },
   { title: '一级标题', roles: ['heading-1'] },
   { title: '段落正文', roles: ['body-paragraph'] },
   { title: '表格正文', roles: ['body-table'] },
@@ -366,8 +368,10 @@ function defaultRoleMap(): RoleMap {
   roles.date = { ...roles['document-subtitle'] }
   roles.abstract = { role_type: 'paragraph', font: { ...font }, paragraph: { ...paragraph, first_line_indent_pt: 32 } }
   roles['abstract-label'] = { role_type: 'character', font: { ...font, chinese_font: '黑体', western_font: 'Arial', bold: true } }
+  roles['abstract-content'] = { role_type: 'character', font: { ...font } }
   roles.keywords = { role_type: 'paragraph', font: { ...font }, paragraph: { ...paragraph, first_line_indent_pt: 0 } }
   roles['keywords-label'] = { role_type: 'character', font: { ...font, chinese_font: '黑体', western_font: 'Arial', bold: true } }
+  roles['keywords-content'] = { role_type: 'character', font: { ...font } }
   roles['heading-1'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 32 } }
   roles['body-table'] = { role_type: 'paragraph', font: { ...font, size_pt: 14 }, paragraph: { ...paragraph, first_line_indent_pt: 0 } }
   roles.footer = { role_type: 'paragraph', font: { ...font, chinese_font: '宋体', size_pt: 14 }, paragraph: { ...paragraph, alignment: 'center' } }
