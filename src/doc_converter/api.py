@@ -366,6 +366,9 @@ def _seed_builtin_packs(style_library: StyleLibrary) -> None:
 
 
 def _default_data_root() -> Path:
+    configured_root = os.environ.get("DOC_CONVERTER_DATA_ROOT")
+    if configured_root:
+        return Path(configured_root)
     local_app_data = os.environ.get("LOCALAPPDATA")
     if local_app_data:
         return Path(local_app_data) / "DocConverter"

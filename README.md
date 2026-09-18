@@ -79,6 +79,24 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
 
 脚本默认从 `C:\Program Files\Pandoc\pandoc.exe` 取 Pandoc，也可使用 `-PandocPath` 指定本地文件。LibreOffice 不会被脚本安装或自动调用。
 
+## Docker Compose
+
+Compose 部署包含前端静态资源、FastAPI 服务和 Pandoc，项目名固定为 `doc-converter`。任务、样式组合和转换产物保存在命名卷 `doc-converter-data` 中：
+
+```powershell
+docker compose -p doc-converter up --build -d
+```
+
+启动后访问 <http://127.0.0.1:8765/>；查看状态或停止服务：
+
+```powershell
+docker compose -p doc-converter ps
+docker compose -p doc-converter logs -f app
+docker compose -p doc-converter down
+```
+
+默认宿主机端口为 `8765`，可通过 `DOC_CONVERTER_PORT=9876` 修改。容器内只使用 Pandoc + OOXML 转换，不安装或启动 LibreOffice。
+
 ## 验证
 
 ```powershell

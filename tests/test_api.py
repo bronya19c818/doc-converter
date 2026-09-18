@@ -96,3 +96,13 @@ def test_draft_endpoint_rejects_missing_source_markdown(tmp_path) -> None:
     response = client.put(f"/api/jobs/{job['id']}/draft", json={})
 
     assert response.status_code == 422
+
+
+def test_data_root_environment_override_is_used_for_container_storage(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("DOC_CONVERTER_DATA_ROOT", str(tmp_path))
+    client = TestClient(create_app())
+
+    response = client.get("/api/style-packs")
+
+    assert response.status_code == 200
+    assert (tmp_path / "style-packs").exists()

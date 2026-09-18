@@ -1,0 +1,15 @@
+.git
+.github
+.venv
+__pycache__
+.mypy_cache
+.pytest_cache
+.ruff_cache
+artifacts
+release
+.release-assets
+frontend/node_modules
+frontend/dist
+*.docx
+*.pdf
+*.pyc
