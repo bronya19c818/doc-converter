@@ -159,3 +159,93 @@ title: 项目方案
 
     assert "本方案将围绕业务目标、实施路径和保障措施展开说明。" in result.markdown
     assert "subtitle" not in result.metadata
+
+
+def test_leading_author_and_organization_department_are_extracted_deterministically() -> None:
+    source = """---
+title: AI模型助力提升物资采购质量
+---
+
+何宏山
+
+重庆市公共资源交易中心
+
+采购管理部
+
+摘要：本文说明采购质量提升路径。
+
+关键词：采购；质量；模型
+
+# 一、正文
+
+正文内容。
+"""
+
+    result = normalize_markdown(source, filename="采购质量.md", confirmed_roles={})
+
+    assert result.metadata["authors"] == ["何宏山"]
+    assert result.metadata["organization"] == "重庆市公共资源交易中心"
+    assert result.metadata["department"] == "采购管理部"
+    assert "何宏山" not in result.markdown.split("---", 2)[-1].split("# 一、正文", 1)[0]
+    assert "重庆市公共资源交易中心" not in result.markdown.split("---", 2)[-1].split("# 一、正文", 1)[0]
+
+
+def test_explicit_author_and_author_unit_labels_override_heuristics() -> None:
+    source = """---
+title: 标注优先
+---
+
+作者：李明
+
+作者单位：华东采购有限公司
+
+综合办公室
+
+# 一、正文
+"""
+
+    result = normalize_markdown(source, filename="标注.md", confirmed_roles={})
+
+    assert result.metadata["authors"] == ["李明"]
+    assert result.metadata["organization"] == "华东采购有限公司"
+    assert result.metadata["department"] == "综合办公室"
+
+
+def test_title_heading_can_precede_title_area_metadata() -> None:
+    source = """# 项目标题
+
+何宏山
+
+XX公司
+
+采购部
+
+# 一、正文
+"""
+
+    result = normalize_markdown(source, filename="标题.md", confirmed_roles={})
+
+    assert result.metadata["authors"] == ["何宏山"]
+    assert result.metadata["organization"] == "XX公司"
+    assert result.metadata["department"] == "采购部"
+    assert "# 项目标题" in result.markdown
+
+
+def test_raw_html_table_is_normalized_with_a_caption_boundary() -> None:
+    source = """---
+title: 表格方案
+---
+
+表1 选择AI编写工具时应考虑的几个因素
+
+<table><tr><td>序号</td><td>因素</td><td>描述</td></tr><tr><td>1</td><td>功能性</td><td>工具是否具备自动生成模板、智能检查等功能</td></tr><tr><td>2</td><td>易用性</td><td>界面是否直观、使用是否方便</td></tr></table>
+
+# 一、正文
+"""
+
+    result = normalize_markdown(source, filename="表格.md", confirmed_roles={})
+
+    assert "表1 选择AI编写工具时应考虑的几个因素" in result.markdown
+    assert "<table>" not in result.markdown
+    assert "| 序号 | 因素 | 描述 |" in result.markdown
+    assert "| 1 | 功能性 | 工具是否具备自动生成模板、智能检查等功能 |" in result.markdown

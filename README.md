@@ -31,13 +31,15 @@ keywords:
 ---
 ```
 
-元数据顺序固定为：标题 → 副标题 → 单位 → 部门 → 作者 → 日期 → 摘要 → 关键词。Front Matter 没有填写副标题时，规范化器会识别标题后的短文本行；也会识别正文中的 `摘要：`、`摘要:`、`关键词：` 和 `关键词:`。`organization` 和 `department` 是两个独立字段，但在 DOCX 中共用“单位/部门”视觉样式；多个作者按数组顺序用“、”合并。识别出的摘要和关键词不会重复进入正文。
+元数据顺序固定为：标题 → 副标题 → 单位 → 部门 → 作者 → 日期 → 摘要 → 关键词。Front Matter 没有填写副标题时，规范化器会识别标题后的短文本行；也会识别正文中的 `摘要：`、`摘要:`、`关键词：` 和 `关键词:`。标题区附近的 `作者：`、`作者单位：`、`单位：`、`部门：` 等显式标签优先；没有标签时，会对标题后的短姓名行（内置常见百家姓）以及包含“公司、中心、部、处、科、室”等机构/部门关键词的短行进行保守识别。`organization` 和 `department` 是两个独立字段，但在 DOCX 中共用“单位/部门”视觉样式；多个作者按数组顺序用“、”合并。识别出的摘要、关键词、作者和单位不会重复进入正文。
 
 ## DOCX 样式库
 
 每个样式组合都包含以下角色：
 
-`document-title`、`document-subtitle`、`organization-department`、`author`、`date`、`abstract`、`keywords`、`heading-1`、`body-paragraph`、`body-table`、`point`、`table-caption`、`figure-caption`、`footer`、`page`。
+`document-title`、`document-subtitle`、`organization-department`、`author`、`date`、`abstract-label`、`abstract`、`keywords-label`、`keywords`、`heading-1`、`body-paragraph`、`body-table`、`point`、`table-caption`、`figure-caption`、`footer`、`page`。
+
+摘要和关键词各自拆成“标签字符样式”和“内容段落样式”：`摘要：` / `关键词：` 使用 `abstract-label` / `keywords-label`，后面的内容分别使用 `abstract` / `keywords`。Markdown 中的 `表1……`、`表一……` 等表题在表格前会映射为 `table-caption`；简单 HTML `<table>` 也会在转换前确定性转成可编辑 Markdown 表格。
 
 文字角色可以分别设置中文字体、西文字体、字号、粗体、斜体、颜色；段落角色还可以设置对齐、缩进、行距、段前段后和分页控制。默认值按正式中文文档模板设置：页面为 A4（21.0 cm × 29.7 cm），上下边距 3.5 cm、左右边距 2.8 cm，标题宋体二号，标题区楷体三号，一级标题黑体三号，段落正文仿宋三号且首行缩进 32 pt、固定行距 29 pt，表格正文仿宋四号无缩进，要点楷体三号加粗，页脚宋体四号。
 

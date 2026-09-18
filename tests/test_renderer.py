@@ -73,6 +73,62 @@ title: 原始 Markdown 标题
     assert "DC_DocumentSubtitle" in {paragraph.style.style_id for paragraph in document.paragraphs}
 
 
+def test_renderer_converts_raw_html_table_and_styles_caption_and_metadata_labels(tmp_path) -> None:
+    markdown = """---
+title: AI模型助力提升物资采购质量
+---
+
+何宏山
+
+重庆市公共资源交易中心
+
+采购管理部
+
+摘要：本文说明采购质量提升路径。
+
+关键词：采购；质量；模型
+
+表1 选择AI编写工具时应考虑的几个因素
+
+<table><tr><td>序号</td><td>因素</td><td>描述</td></tr><tr><td>1</td><td>功能性</td><td>工具是否具备自动生成模板、智能检查等功能</td></tr></table>
+
+# 一、正文
+
+正文内容。
+"""
+    output_path = tmp_path / "metadata-table.docx"
+
+    render_docx(
+        markdown=markdown,
+        style_pack=create_style_pack(name="元数据表格测试", format_id="docx"),
+        output_path=output_path,
+        work_dir=tmp_path / "work",
+    )
+
+    document = Document(output_path)
+    assert len(document.tables) == 1
+    table = document.tables[0]
+    assert table.cell(0, 0).text == "序号"
+    assert table.cell(1, 2).text == "工具是否具备自动生成模板、智能检查等功能"
+    caption = next(paragraph for paragraph in document.paragraphs if paragraph.text.startswith("表1"))
+    assert caption.style.style_id == "DC_TableCaption"
+    assert {paragraph.style.style_id for paragraph in document.paragraphs} >= {
+        "DC_DocumentTitle",
+        "DC_Author",
+        "DC_OrganizationDepartment",
+        "DC_Abstract",
+        "DC_Keywords",
+    }
+    assert any(run.style and run.style.style_id == "DC_AbstractLabel" for paragraph in document.paragraphs for run in paragraph.runs)
+    assert any(run.style and run.style.style_id == "DC_KeywordsLabel" for paragraph in document.paragraphs for run in paragraph.runs)
+    assert {
+        paragraph.style.style_id
+        for row in table.rows
+        for cell in row.cells
+        for paragraph in cell.paragraphs
+    } == {"DC_TableBody"}
+
+
 def test_renderer_prefers_bundled_pandoc_when_available(tmp_path) -> None:
     bundled_root = tmp_path / "pandoc"
     bundled_root.mkdir()
@@ -162,7 +218,9 @@ keywords:
         "DC_OrganizationDepartment",
         "DC_Author",
         "DC_Date",
+        "DC_AbstractLabel",
         "DC_Abstract",
+        "DC_KeywordsLabel",
         "DC_Keywords",
         "DC_Heading1",
         "DC_BodyParagraph",

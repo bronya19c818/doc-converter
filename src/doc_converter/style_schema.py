@@ -19,7 +19,9 @@ ROLE_KEYS = (
     "author",
     "date",
     "abstract",
+    "abstract-label",
     "keywords",
+    "keywords-label",
     "heading-1",
     "body-paragraph",
     "body-table",
@@ -139,9 +141,17 @@ def default_roles() -> dict[str, dict[str, Any]]:
             font={"chinese_font": "仿宋", "western_font": "Times New Roman", "size_pt": 16},
             paragraph={"first_line_indent_pt": 32, "line_spacing_pt": 29},
         ),
+        "abstract-label": _role(
+            role_type="character",
+            font={"chinese_font": "黑体", "western_font": "Arial", "size_pt": 16, "bold": True},
+        ),
         "keywords": _role(
             font={"chinese_font": "仿宋", "western_font": "Times New Roman", "size_pt": 16},
             paragraph={"first_line_indent_pt": 0, "line_spacing_pt": 29},
+        ),
+        "keywords-label": _role(
+            role_type="character",
+            font={"chinese_font": "黑体", "western_font": "Arial", "size_pt": 16, "bold": True},
         ),
         "heading-1": _role(
             font={"chinese_font": "黑体", "western_font": "Arial", "size_pt": 16, "bold": True},
@@ -268,7 +278,9 @@ def migrate_roles(raw_roles: Any) -> dict[str, dict[str, Any]]:
             page.update(value.get("page", value))
             migrated[role_key] = _role(role_type="page", page=page)
             continue
-        role_type: Literal["paragraph", "character"] = "character" if role_key == "point" else "paragraph"
+        role_type: Literal["paragraph", "character"] = (
+            "character" if fallback.get("role_type") == "character" or role_key == "point" else "paragraph"
+        )
         migrated[role_key] = _role(
             role_type=role_type,
             font=_font_from_legacy(value, fallback),

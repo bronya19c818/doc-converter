@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
+from html.parser import HTMLParser
 from typing import Any
 
 import yaml
@@ -13,7 +14,20 @@ _HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
 _IMAGE_PATTERN = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 _LINK_PATTERN = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
 _LABEL_PATTERN = re.compile(r"^\s*(摘要|关键词)\s*[:：]\s*(.*)$")
+_TITLE_AREA_LABEL_PATTERN = re.compile(r"^\s*(作者单位|作者|单位|机构|组织|部门|所属部门)\s*[:：]\s*(.*)$")
 _KEYWORD_SEPARATOR = re.compile(r"[；;，,\n]+")
+_TABLE_CAPTION_PATTERN = re.compile(
+    r"^\s*表\s*(?:\d+|[一二三四五六七八九十百千万]+)\s*(?:[：:、.．\s]|$)"
+)
+_NUMBERED_HEADING_PATTERN = re.compile(
+    r"^#{1,6}\s+(?:[一二三四五六七八九十百千万]+[、.．)]|（[^）]+）|\d+[.、)])"
+)
+_CHINESE_NAME_PATTERN = re.compile(r"^[\u4e00-\u9fff]{2,4}$")
+_ORG_MARKERS = ("公司", "集团", "中心", "大学", "学院", "研究院", "事务所", "工厂", "医院", "学校", "协会", "委员会")
+_DEPARTMENT_MARKERS = ("部门", "部", "处", "科", "室", "局", "办", "厅", "所", "组", "队")
+_COMMON_SURNAMES = frozenset(
+    "赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜戚谢邹喻柏水窦章云苏潘葛奚范彭郎鲁韦昌马苗凤花方俞任袁柳酆鲍史唐费廉岑薛雷贺倪汤滕殷罗毕郝邬安常乐于时傅皮卞齐康伍余元卜顾孟平黄和穆萧尹姚邵湛汪祁毛禹狄米贝明臧计伏成戴谈宋茅庞熊纪舒屈项祝董梁杜阮蓝闵席季麻强贾路娄危江童颜郭梅盛林刁钟徐邱骆高夏蔡田樊胡凌霍虞万支柯昝管卢莫经房裘缪干解应宗丁宣贲邓郁单杭洪包诸左石崔吉钮龚程嵇邢滑裴陆荣翁荀羊於惠甄曲家封芮羿储靳汲邴糜松井段富巫乌焦巴弓牧隗山谷车侯宓蓬全郗班仰秋仲伊宫宁仇栾暴甘钭厉戎祖武符刘景詹束龙叶幸司韶郜黎蓟薄印宿白怀蒲邰从鄂索咸籍赖卓蔺屠蒙池乔阴郁胥能苍双闻莘党翟谭贡劳逄姬申扶堵冉宰郦雍郤璩桑桂濮牛寿通边扈燕冀郏浦尚农温别庄晏柴瞿阎充慕连茹习宦艾鱼容向古易慎戈廖庾终暨居衡步都耿满弘匡国文寇广禄阙东欧殳沃利蔚越夔隆师巩厍聂晁勾敖融冷訾辛阚那简饶空曾毋沙乜养鞠须丰巢关蒯相查后荆红游竺权逯盖益桓公晋楚闫法汝鄢涂钦岳帅缑亢况郈有琴归海"
+)
 
 
 @dataclass(frozen=True)
@@ -81,7 +95,7 @@ def normalize_markdown(
             continue
         normalized_lines.append(line)
 
-    body = "\n".join(normalized_lines).strip("\n")
+    body = _normalize_html_tables("\n".join(normalized_lines).strip("\n"))
     markdown = _serialize_front_matter(metadata, body)
     integrity = _integrity_inventory(source, markdown)
     integrity["passed"] = integrity["images"] == integrity["normalized_images"] and integrity[
@@ -169,9 +183,16 @@ def _extract_leading_metadata(
     consumed: set[int] = set()
     changes: list[dict[str, str | int]] = []
     subtitle_seen = False
+    title_hint = bool(metadata.get("title"))
 
     for block_start, block_end, block_lines in blocks:
         block_text = "\n".join(line.strip() for line in block_lines).strip()
+        if len(block_lines) == 1 and _HEADING_PATTERN.match(block_lines[0]):
+            if _NUMBERED_HEADING_PATTERN.match(block_lines[0]):
+                break
+            title_hint = True
+            continue
+
         label_match = _LABEL_PATTERN.match(block_text)
         if label_match:
             key = "abstract" if label_match.group(1) == "摘要" else "keywords"
@@ -200,9 +221,38 @@ def _extract_leading_metadata(
             )
             continue
 
+        title_area_match = _TITLE_AREA_LABEL_PATTERN.match(block_text)
+        if title_area_match and title_hint:
+            role, value = _metadata_label_value(title_area_match.group(1), title_area_match.group(2))
+            if role and value and role not in metadata and role not in extracted:
+                extracted[role] = _split_list_value(value) if role == "authors" else value
+                consumed.update(range(block_start, block_end))
+                changes.append(
+                    {
+                        "line": first_content_line + block_start,
+                        "from": "labelled-paragraph",
+                        "to": role,
+                    }
+                )
+                continue
+
+        if title_hint and len(block_lines) == 1:
+            role = _infer_title_area_role(block_text)
+            if role and role not in metadata and role not in extracted:
+                extracted[role] = [block_text] if role == "authors" else block_text
+                consumed.update(range(block_start, block_end))
+                changes.append(
+                    {
+                        "line": first_content_line + block_start,
+                        "from": "leading-paragraph",
+                        "to": role,
+                    }
+                )
+                continue
+
         if (
             not subtitle_seen
-            and "title" in metadata
+            and title_hint
             and "subtitle" not in metadata
             and "subtitle" not in extracted
             and _is_subtitle_candidate(block_lines)
@@ -217,6 +267,11 @@ def _extract_leading_metadata(
                     "to": "document-subtitle",
                 }
             )
+            continue
+
+        # A non-metadata paragraph marks the end of the title area. This keeps
+        # later short body paragraphs from being mistaken for authors or units.
+        break
 
     return extracted, consumed, changes
 
@@ -226,7 +281,7 @@ def _leading_metadata_barrier(lines: list[str]) -> int:
         stripped = line.strip()
         if not stripped:
             continue
-        if _HEADING_PATTERN.match(line) or stripped.startswith(("```", "~~~", "|")):
+        if _NUMBERED_HEADING_PATTERN.match(line) or stripped.startswith(("```", "~~~", "|")):
             return index
     return len(lines)
 
@@ -255,6 +310,8 @@ def _is_subtitle_candidate(lines: list[str]) -> bool:
         return False
     if _LABEL_PATTERN.match(value) or _HEADING_PATTERN.match(value):
         return False
+    if _TABLE_CAPTION_PATTERN.match(value):
+        return False
     if value.startswith(("- ", "* ", "+ ", "> ")) or re.match(r"^\d+[.)、]", value):
         return False
     return not value.endswith(("。", "！", "？", "；", ".", "!", "?", ";", ":", "："))
@@ -262,6 +319,120 @@ def _is_subtitle_candidate(lines: list[str]) -> bool:
 
 def _split_list_value(value: str) -> list[str]:
     return [item.strip() for item in _KEYWORD_SEPARATOR.split(value) if item.strip()]
+
+
+def _metadata_label_value(label: str, value: str) -> tuple[str | None, str]:
+    text = value.strip()
+    if not text:
+        return None, ""
+    if label == "作者":
+        return "authors", text
+    if label == "作者单位" or label in {"单位", "机构", "组织"}:
+        return "organization", text
+    return "department", text
+
+
+def _infer_title_area_role(value: str) -> str | None:
+    if _is_author_candidate(value):
+        return "authors"
+    if _is_organization_candidate(value):
+        return "organization"
+    if _is_department_candidate(value):
+        return "department"
+    return None
+
+
+def _is_author_candidate(value: str) -> bool:
+    return bool(_CHINESE_NAME_PATTERN.fullmatch(value)) and value[0] in _COMMON_SURNAMES
+
+
+def _is_organization_candidate(value: str) -> bool:
+    return 2 <= len(value) <= 20 and not _has_sentence_punctuation(value) and any(
+        marker in value for marker in _ORG_MARKERS
+    )
+
+
+def _is_department_candidate(value: str) -> bool:
+    return 2 <= len(value) <= 20 and not _has_sentence_punctuation(value) and any(
+        marker in value for marker in _DEPARTMENT_MARKERS
+    )
+
+
+def _has_sentence_punctuation(value: str) -> bool:
+    return any(mark in value for mark in "。！？；;，,：:、.!?")
+
+
+class _HtmlTableParser(HTMLParser):
+    """Parse the simple HTML tables commonly emitted by Markdown exporters."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: list[list[str]] = []
+        self._row: list[str] | None = None
+        self._cell: list[str] | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        if tag == "tr":
+            self._row = []
+        elif tag in {"td", "th"} and self._row is not None:
+            self._cell = []
+        elif tag == "br" and self._cell is not None:
+            self._cell.append(" ")
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if tag in {"td", "th"} and self._row is not None and self._cell is not None:
+            self._row.append("".join(self._cell).strip())
+            self._cell = None
+        elif tag == "tr" and self._row is not None:
+            if self._row:
+                self.rows.append(self._row)
+            self._row = None
+
+    def handle_data(self, data: str) -> None:
+        if self._cell is not None:
+            self._cell.append(data)
+
+
+def _normalize_html_tables(markdown: str) -> str:
+    """Convert simple raw HTML tables into editable Markdown tables."""
+
+    if "<table" not in markdown.lower():
+        return markdown
+    lines = markdown.splitlines()
+    output: list[str] = []
+    in_fence = False
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        stripped = line.strip()
+        if stripped.startswith(("```", "~~~")):
+            in_fence = not in_fence
+        if not in_fence and "<table" in line.lower():
+            block = [line]
+            while "</table>" not in "\n".join(block).lower() and index + 1 < len(lines):
+                index += 1
+                block.append(lines[index])
+            output.extend(_replace_html_table_block("\n".join(block)).splitlines())
+        else:
+            output.append(line)
+        index += 1
+    return "\n".join(output)
+
+
+def _replace_html_table_block(block: str) -> str:
+    parser = _HtmlTableParser()
+    parser.feed(block)
+    parser.close()
+    if not parser.rows:
+        return block
+    width = max(len(row) for row in parser.rows)
+    rows = [row + [""] * (width - len(row)) for row in parser.rows]
+    escaped = [[cell.replace("|", "\\|") for cell in row] for row in rows]
+    lines = ["| " + " | ".join(row) + " |" for row in escaped]
+    lines.insert(1, "| " + " | ".join("---" for _ in range(width)) + " |")
+    return "\n".join(lines)
 
 
 def _integrity_inventory(source: str, normalized: str) -> dict[str, Any]:

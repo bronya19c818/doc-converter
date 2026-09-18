@@ -24,6 +24,8 @@ describe('StyleEditor', () => {
     expect(screen.getByLabelText('段落正文西文字体')).toHaveValue('Times New Roman')
     expect(screen.getByLabelText('表格正文中文字体')).toHaveValue('仿宋')
     expect(screen.getByLabelText('摘要中文字体')).toHaveValue('仿宋')
+    expect(screen.getByLabelText('摘要标签中文字体')).toHaveValue('黑体')
+    expect(screen.getByLabelText('关键词标签中文字体')).toHaveValue('黑体')
     expect(screen.getByLabelText('关键词字号').tagName).toBe('SELECT')
     expect(screen.getByLabelText('段落正文字号').tagName).toBe('SELECT')
     expect(screen.getByLabelText('段落正文字号')).toHaveValue('16')

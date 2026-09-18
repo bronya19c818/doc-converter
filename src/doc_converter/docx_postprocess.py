@@ -12,8 +12,10 @@ from docx.text.paragraph import Paragraph
 
 from doc_converter.docx_styles import ROLE_TO_STYLE_ID
 from doc_converter.normalizer import (
+    _TABLE_CAPTION_PATTERN,
     _extract_front_matter,
     _extract_leading_metadata,
+    _normalize_html_tables,
     _normalize_metadata,
 )
 
@@ -29,7 +31,8 @@ def split_metadata(markdown: str) -> tuple[dict[str, Any], str]:
     extracted, consumed, _ = _extract_leading_metadata(lines, metadata, first_content_line)
     metadata.update(extracted)
     body_lines = [line for index, line in enumerate(lines) if index not in consumed]
-    return metadata, "\n".join(body_lines).strip("\n") + "\n"
+    body = _normalize_html_tables("\n".join(body_lines).strip("\n"))
+    return metadata, body + "\n"
 
 
 def protect_ordered_list_literals(markdown: str) -> str:
@@ -57,6 +60,7 @@ def apply_postprocess(document: DocxDocument, metadata: dict[str, Any]) -> None:
                 for paragraph in cell.paragraphs:
                     _map_paragraph(paragraph, ROLE_TO_STYLE_ID["body-table"])
 
+    _style_table_captions(document)
     _insert_metadata(document, metadata)
     _add_page_footers(document)
 
@@ -72,6 +76,20 @@ def _map_paragraph(paragraph: Paragraph, default_style: str) -> None:
         if run.bold is True:
             run.style = ROLE_TO_STYLE_ID["point"]
             _remove_direct_bold(run)
+
+
+def _style_table_captions(document: DocxDocument) -> None:
+    body = document._body._element
+    children = list(body)
+    for index, child in enumerate(children):
+        if child.tag != qn("w:tbl") or index == 0:
+            continue
+        previous = children[index - 1]
+        if previous.tag != qn("w:p"):
+            continue
+        paragraph = Paragraph(previous, document)
+        if _TABLE_CAPTION_PATTERN.match(paragraph.text):
+            paragraph.style = ROLE_TO_STYLE_ID["table-caption"]
 
 
 def _remove_numbering(paragraph: Paragraph) -> None:
@@ -109,12 +127,8 @@ def _insert_metadata(document: DocxDocument, metadata: dict[str, Any]) -> None:
     if isinstance(metadata.get("date"), str) and metadata["date"].strip():
         entries.append(("date", metadata["date"], ROLE_TO_STYLE_ID["date"]))
     abstract = _strip_metadata_label(metadata.get("abstract"), "摘要")
-    if abstract:
-        entries.append(("abstract", f"摘要：{abstract}", ROLE_TO_STYLE_ID["abstract"]))
     keywords = _keyword_text(metadata.get("keywords"))
-    if keywords:
-        entries.append(("keywords", f"关键词：{keywords}", ROLE_TO_STYLE_ID["keywords"]))
-    if not entries:
+    if not entries and not abstract and not keywords:
         return
 
     body = document._body._element
@@ -127,6 +141,46 @@ def _insert_metadata(document: DocxDocument, metadata: dict[str, Any]) -> None:
         paragraph = Paragraph(element, document)
         paragraph.style = style_id
         paragraph.add_run(text)
+    if abstract:
+        _insert_labeled_metadata_paragraph(
+            document,
+            body,
+            insert_index,
+            label="摘要：",
+            content=abstract,
+            paragraph_style=ROLE_TO_STYLE_ID["abstract"],
+            label_style=ROLE_TO_STYLE_ID["abstract-label"],
+        )
+        insert_index += 1
+    if keywords:
+        _insert_labeled_metadata_paragraph(
+            document,
+            body,
+            insert_index,
+            label="关键词：",
+            content=keywords,
+            paragraph_style=ROLE_TO_STYLE_ID["keywords"],
+            label_style=ROLE_TO_STYLE_ID["keywords-label"],
+        )
+
+
+def _insert_labeled_metadata_paragraph(
+    document: DocxDocument,
+    body: Any,
+    insert_index: int,
+    *,
+    label: str,
+    content: str,
+    paragraph_style: str,
+    label_style: str,
+) -> None:
+    element = OxmlElement("w:p")
+    body.insert(insert_index, element)
+    paragraph = Paragraph(element, document)
+    paragraph.style = paragraph_style
+    label_run = paragraph.add_run(label)
+    label_run.style = label_style
+    paragraph.add_run(content)
 
 
 def _strip_metadata_label(value: Any, label: str) -> str:
