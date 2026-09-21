@@ -9,12 +9,19 @@ from html.parser import HTMLParser
 from typing import Any
 
 import yaml
+from markdown_it import MarkdownIt
 
 from doc_converter.markdown_preprocess import preprocess_markdown
 
 _HEADING_PATTERN = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
-_IMAGE_PATTERN = re.compile(r"!\[[^\]]*\]\(([^)]+)\)")
 _LINK_PATTERN = re.compile(r"(?<!!)\[[^\]]+\]\(([^)]+)\)")
+_SPLIT_IMAGE_LABEL_LINE = re.compile(r"^([ \t]*!\[[^\]\r\n]*\])[ \t]*$")
+_SPLIT_IMAGE_DESTINATION_LINE = re.compile(r"^[ \t]*(\([^\r\n]+\))[ \t]*$")
+_INLINE_CODE_PATTERN = re.compile(r"(`+)[\s\S]*?\1")
+_HTML_IMAGE_TAG_PATTERN = re.compile(
+    r"<img\b(?:[^\"'>]|\"[^\"]*\"|'[^']*')*>",
+    re.IGNORECASE | re.DOTALL,
+)
 _LABEL_PATTERN = re.compile(r"^\s*(摘要|关键词)\s*[:：]\s*(.*)$")
 _TITLE_AREA_LABEL_PATTERN = re.compile(
     r"^\s*(作者单位|作者|单位|机构|组织|部门|所属部门|日期|时间|发布时间)\s*[:：]\s*(.*)$"
@@ -488,8 +495,142 @@ def _replace_html_table_block(block: str) -> str:
 
 def _integrity_inventory(source: str, normalized: str) -> dict[str, Any]:
     return {
-        "images": _IMAGE_PATTERN.findall(source),
-        "normalized_images": _IMAGE_PATTERN.findall(normalized),
+        "images": _image_destinations(source),
+        "normalized_images": _image_destinations(normalized),
         "links": _LINK_PATTERN.findall(source),
         "normalized_links": _LINK_PATTERN.findall(normalized),
     }
+
+
+def _join_split_image_syntax(markdown: str) -> str:
+    """Join exporter-style ``![alt]`` plus next-line ``(source)`` images."""
+
+    lines = markdown.splitlines()
+    output: list[str] = []
+    fence: tuple[str, int] | None = None
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        fence_match = re.match(r"^\s*(`{3,}|~{3,})", line)
+        if fence_match:
+            marker = fence_match.group(1)
+            if fence is None:
+                fence = (marker[0], len(marker))
+            elif marker[0] == fence[0] and len(marker) >= fence[1]:
+                fence = None
+            output.append(line)
+            index += 1
+            continue
+
+        label_match = _SPLIT_IMAGE_LABEL_LINE.fullmatch(line)
+        if fence is None and label_match is not None and index + 1 < len(lines):
+            destination_match = _SPLIT_IMAGE_DESTINATION_LINE.fullmatch(lines[index + 1])
+            if destination_match is not None:
+                output.append(label_match.group(1) + destination_match.group(1))
+                index += 2
+                continue
+        output.append(line)
+        index += 1
+    return "\n".join(output)
+
+
+class _ImageSourceParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.sources: list[str] = []
+        self.images: list[tuple[str, str, str | None]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.casefold() != "img":
+            return
+        attributes = dict(attrs)
+        source = attributes.get("src")
+        if not isinstance(source, str) or not source:
+            return
+        alt_value = attributes.get("alt")
+        title_value = attributes.get("title")
+        alt = alt_value if isinstance(alt_value, str) else ""
+        title = title_value if isinstance(title_value, str) else None
+        self.sources.append(source)
+        self.images.append((source, alt, title))
+
+
+def _image_destinations(markdown: str) -> list[str]:
+    """Inventory Markdown reference, inline, split-line, and raw HTML images."""
+
+    destinations: list[str] = []
+    tokens = MarkdownIt("commonmark", {"html": True}).parse(_join_split_image_syntax(markdown))
+    for token in tokens:
+        fragments: list[str] = []
+        if token.type == "html_block":
+            fragments.append(token.content)
+        elif token.type == "inline":
+            for child in token.children or []:
+                if child.type == "image":
+                    source = child.attrGet("src")
+                    if isinstance(source, str) and source:
+                        destinations.append(source)
+                elif child.type == "html_inline":
+                    fragments.append(child.content)
+        for fragment in fragments:
+            html_parser = _ImageSourceParser()
+            html_parser.feed(fragment)
+            html_parser.close()
+            destinations.extend(html_parser.sources)
+    return destinations
+
+
+def _normalize_html_images(markdown: str) -> str:
+    """Convert raw HTML image tags to Markdown so Pandoc embeds them in DOCX."""
+
+    output: list[str] = []
+    ordinary_lines: list[str] = []
+    fence: tuple[str, int] | None = None
+
+    def flush_ordinary_lines() -> None:
+        if ordinary_lines:
+            block = "".join(ordinary_lines)
+            code_spans: list[str] = []
+
+            def hold_code_span(match: re.Match[str]) -> str:
+                code_spans.append(match.group(0))
+                return f"\x00doc-converter-inline-code-{len(code_spans) - 1}\x00"
+
+            transformed = _INLINE_CODE_PATTERN.sub(hold_code_span, block)
+            transformed = _HTML_IMAGE_TAG_PATTERN.sub(_html_image_to_markdown, transformed)
+            for index, code_span in enumerate(code_spans):
+                transformed = transformed.replace(f"\x00doc-converter-inline-code-{index}\x00", code_span)
+            output.append(transformed)
+            ordinary_lines.clear()
+
+    for line in markdown.splitlines(keepends=True):
+        fence_match = re.match(r"^\s*(`{3,}|~{3,})", line)
+        if fence_match:
+            flush_ordinary_lines()
+            marker = fence_match.group(1)
+            if fence is None:
+                fence = (marker[0], len(marker))
+            elif marker[0] == fence[0] and len(marker) >= fence[1]:
+                fence = None
+            output.append(line)
+        elif fence is None:
+            ordinary_lines.append(line)
+        else:
+            output.append(line)
+    flush_ordinary_lines()
+    return "".join(output)
+
+
+def _html_image_to_markdown(match: re.Match[str]) -> str:
+    parser = _ImageSourceParser()
+    parser.feed(match.group(0))
+    parser.close()
+    if not parser.images:
+        return match.group(0)
+    source, alt, title = parser.images[0]
+    if "<" in source or ">" in source:
+        return match.group(0)
+    escaped_alt = alt.replace("\\", "\\\\").replace("]", "\\]").replace("\n", " ")
+    escaped_title = title.replace("\\", "\\\\").replace('"', '\\"') if title else None
+    title_part = f' "{escaped_title}"' if escaped_title else ""
+    return f"![{escaped_alt}](<{source}>{title_part})"

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { StyleEditor } from './StyleEditor'
@@ -24,11 +24,24 @@ describe('StyleEditor', () => {
     expect(screen.getByLabelText('摘要内容中文字体')).toHaveValue('楷体')
     expect(screen.getByLabelText('关键词标签中文字体')).toHaveValue('黑体')
     expect(screen.getByLabelText('关键词内容中文字体')).toHaveValue('楷体')
+    expect(screen.getByLabelText('摘要标签对齐')).toHaveValue('justify')
+    expect(screen.getByLabelText('摘要标签首行缩进单位')).toHaveValue('character')
+    expect(screen.getByLabelText('摘要标签左缩进单位')).toHaveValue('character')
+    expect(screen.getByLabelText('摘要标签右缩进单位')).toHaveValue('character')
+    expect(screen.getByLabelText('摘要标签行距类型')).toHaveValue('minimum')
+    expect(screen.getByLabelText('摘要标签行距（磅）')).toHaveValue(12)
+    expect(screen.getByLabelText('摘要标签段前（磅）')).toHaveValue(12)
+    expect(screen.getByLabelText('摘要标签段后（磅）')).toHaveValue(0)
+    expect(screen.queryByLabelText('摘要内容对齐')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('关键词标签左缩进单位')).toHaveValue('character')
+    expect(screen.getByLabelText('关键词标签行距类型')).toHaveValue('minimum')
+    expect(screen.getByLabelText('关键词标签段前（磅）')).toBeInTheDocument()
+    expect(screen.getByLabelText('关键词标签段后（磅）')).toHaveValue(5)
+    expect(screen.queryByLabelText('关键词内容对齐')).not.toBeInTheDocument()
     expect(screen.getByLabelText('关键词内容字号').tagName).toBe('SELECT')
     fireEvent.click(screen.getByRole('tab', { name: '正文部分' }))
     expect(screen.getByLabelText('段落正文中文字体')).toHaveValue('仿宋')
     expect(screen.getByLabelText('段落正文西文字体')).toHaveValue('Times New Roman')
-    expect(screen.getByLabelText('表格正文中文字体')).toHaveValue('仿宋')
     expect(screen.getByLabelText('段落正文字号').tagName).toBe('SELECT')
     expect(screen.getByLabelText('段落正文字号')).toHaveValue('16')
     expect(screen.getAllByRole('option', { name: '三号（16 磅）' }).length).toBeGreaterThan(0)
@@ -42,6 +55,42 @@ describe('StyleEditor', () => {
     expect(screen.getByRole('tab', { name: '文后部分' })).toBeInTheDocument()
     expect(screen.queryByLabelText('摘要中文字体')).not.toBeInTheDocument()
     expect(screen.queryByText('页面设置')).not.toBeInTheDocument()
+  })
+
+  it('groups paragraph points, table roles, and image roles in the body settings', () => {
+    render(<StyleEditor disabled={false} onSaved={vi.fn()} pack={pack} />)
+    fireEvent.click(screen.getByRole('tab', { name: '正文部分' }))
+
+    const paragraphGroup = screen.getByRole('group', { name: '正文' })
+    expect(within(paragraphGroup).getByLabelText('段落正文中文字体')).toBeInTheDocument()
+    expect(within(paragraphGroup).getByLabelText('要点中文字体')).toBeInTheDocument()
+
+    const tableGroup = screen.getByRole('group', { name: '表格' })
+    expect(within(tableGroup).getByLabelText('表格标题中文字体')).toBeInTheDocument()
+    expect(within(tableGroup).getByLabelText('行标题中文字体')).toBeInTheDocument()
+    expect(within(tableGroup).getByLabelText('列标题中文字体')).toBeInTheDocument()
+    expect(within(tableGroup).getByLabelText('表格正文中文字体')).toHaveValue('仿宋')
+    expect(within(tableGroup).getByLabelText('行标题字号').tagName).toBe('SELECT')
+    expect(within(tableGroup).getByLabelText('列标题对齐')).toBeInTheDocument()
+
+    const imageGroup = screen.getByRole('group', { name: '图片' })
+    expect(within(imageGroup).getByLabelText('图片标题中文字体')).toBeInTheDocument()
+    expect(within(imageGroup).getByLabelText('图片样式对齐')).toHaveValue('center')
+    expect(within(imageGroup).getByLabelText('图片样式最大宽度（厘米）')).toHaveValue(null)
+    expect(within(imageGroup).getByLabelText('图片样式段前（磅）')).toHaveValue(0)
+    expect(within(imageGroup).getByLabelText('图片样式段后（磅）')).toHaveValue(0)
+    expect(screen.queryByLabelText('图表题中文字体')).not.toBeInTheDocument()
+  })
+
+  it('allows editing image alignment and custom maximum width', () => {
+    render(<StyleEditor disabled={false} onSaved={vi.fn()} pack={pack} />)
+    fireEvent.click(screen.getByRole('tab', { name: '正文部分' }))
+
+    fireEvent.change(screen.getByLabelText('图片样式对齐'), { target: { value: 'right' } })
+    fireEvent.change(screen.getByLabelText('图片样式最大宽度（厘米）'), { target: { value: '8.5' } })
+
+    expect(screen.getByLabelText('图片样式对齐')).toHaveValue('right')
+    expect(screen.getByLabelText('图片样式最大宽度（厘米）')).toHaveValue(8.5)
   })
 
   it('switches to independent multi-level heading roles', () => {

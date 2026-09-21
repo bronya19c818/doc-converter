@@ -6,12 +6,14 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -71,6 +73,8 @@ class RenderRequest(BaseModel):
 
     source_markdown: str | None = None
     confirmed_roles: dict[str, str] = Field(default_factory=dict)
+    style_pack_id: str | None = None
+    style_pack_version: int | None = Field(default=None, ge=1)
 
 
 class JobRecord(BaseModel):
@@ -88,6 +92,8 @@ class JobRecord(BaseModel):
     output_name: str | None = None
     draft_updated_at: datetime | None = None
     source_hash: str = ""
+    render_revision: int = 0
+    preview_ready: bool = False
 
 
 class JobStore:
@@ -231,6 +237,7 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
                 "error": None,
                 "draft_updated_at": datetime.now(timezone.utc),
                 "source_hash": _source_hash(request.source_markdown),
+                "preview_ready": False,
             }
         )
         job_store.path_for(job.id).mkdir(parents=True, exist_ok=True)
@@ -269,7 +276,18 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
             (job_directory / "confirmation.json").write_text(
                 json.dumps(request.confirmed_roles, ensure_ascii=False, indent=2), encoding="utf-8"
             )
-            style_pack = style_library.get(job.style_pack_id, job.style_pack_version)
+            style_pack_id = request.style_pack_id or job.style_pack_id
+            style_pack_version = request.style_pack_version or job.style_pack_version
+            try:
+                style_pack = style_library.get(style_pack_id, style_pack_version)
+            except FileNotFoundError as error:
+                raise HTTPException(status_code=404, detail="未找到当前样式组合版本。") from error
+            job = job.model_copy(
+                update={
+                    "style_pack_id": style_pack_id,
+                    "style_pack_version": style_pack_version,
+                }
+            )
             (job_directory / "style-pack.snapshot.json").write_text(
                 style_pack.model_dump_json(indent=2), encoding="utf-8"
             )
@@ -280,6 +298,10 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
                 output_path=job_directory / output_name,
                 work_dir=job_directory / "work",
             )
+            render_revision = job.render_revision + 1
+            preview_path = job_directory / "preview" / f"document-{render_revision}.pdf"
+            preview_ready = _convert_docx_to_pdf(job_directory / output_name, preview_path)
+            preview_ready = preview_ready and preview_path.is_file()
             completed = job.model_copy(
                 update={
                     "status": "completed",
@@ -292,6 +314,8 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
                     ],
                     "error": None,
                     "output_name": output_name,
+                    "render_revision": render_revision,
+                    "preview_ready": preview_ready,
                 }
             )
             job_store.save(completed)
@@ -310,6 +334,27 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
         if not artifact_path.exists():
             raise HTTPException(status_code=404, detail="任务产物已不存在。")
         return FileResponse(artifact_path, filename=artifact_name)
+
+    @app.get("/api/jobs/{job_id}/preview")
+    def get_preview(job_id: str, revision: int | None = Query(default=None, ge=1)) -> FileResponse:
+        job = _get_job_or_404(job_store, job_id)
+        if job.status != "completed" or not job.output_name:
+            raise HTTPException(status_code=404, detail="任务尚未生成可预览的 DOCX。")
+        job_directory = job_store.path_for(job.id)
+        docx_path = job_directory / job.output_name
+        if not docx_path.exists():
+            raise HTTPException(status_code=404, detail="任务 DOCX 产物已不存在。")
+        preview_revision = revision or job.render_revision
+        preview_path = job_directory / "preview" / f"document-{preview_revision}.pdf"
+        if not preview_path.exists() and not _convert_docx_to_pdf(docx_path, preview_path):
+            raise HTTPException(status_code=404, detail="当前环境没有可用的本地 PDF 预览引擎。")
+        return FileResponse(
+            preview_path,
+            media_type="application/pdf",
+            filename="document-preview.pdf",
+            content_disposition_type="inline",
+            headers={"Cache-Control": "private, max-age=31536000, immutable"},
+        )
 
     resolved_frontend_dist = frontend_dist or _default_frontend_dist()
     index_path = resolved_frontend_dist / "index.html"
@@ -470,6 +515,60 @@ def _suggest_semantic_roles(source: str) -> list[dict[str, Any]]:
 
 def _source_hash(source: str) -> str:
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
+def _convert_docx_to_pdf(source_path: Path, output_path: Path) -> bool:
+    """Render the already-created DOCX with a local office engine for preview only."""
+
+    executable = _find_soffice()
+    if executable is None:
+        return False
+
+    conversion_root = output_path.parent / f".conversion-{uuid4().hex}"
+    profile_root = output_path.parent / f".profile-{uuid4().hex}"
+    conversion_root.mkdir(parents=True, exist_ok=True)
+    profile_root.mkdir(parents=True, exist_ok=True)
+    try:
+        result = subprocess.run(
+            [
+                executable,
+                "--headless",
+                f"-env:UserInstallation={profile_root.as_uri()}",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                str(conversion_root),
+                str(source_path),
+            ],
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
+        generated_path = conversion_root / f"{source_path.stem}.pdf"
+        if result.returncode != 0 or not generated_path.exists():
+            return False
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        generated_path.replace(output_path)
+        return True
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    finally:
+        shutil.rmtree(conversion_root, ignore_errors=True)
+        shutil.rmtree(profile_root, ignore_errors=True)
+
+
+def _find_soffice() -> str | None:
+    for name in ("soffice.com", "soffice.exe", "soffice"):
+        executable = shutil.which(name)
+        if executable:
+            return executable
+
+    program_files = os.environ.get("ProgramFiles")
+    if program_files:
+        candidate = Path(program_files) / "LibreOffice" / "program" / "soffice.com"
+        if candidate.exists():
+            return str(candidate)
+    return None
 
 
 def _get_job_or_404(job_store: JobStore, job_id: str) -> JobRecord:

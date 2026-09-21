@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 ROLE_KEYS = (
     "document-title",
@@ -30,9 +30,12 @@ ROLE_KEYS = (
     "heading-6",
     "body-paragraph",
     "body-table",
+    "table-row-header",
+    "table-column-header",
     "point",
     "table-caption",
     "figure-caption",
+    "image",
     "reference-heading",
     "reference-entry",
     "footer",
@@ -91,29 +94,43 @@ class PageSpec(BaseModel):
     page_height_cm: float = 29.7
 
 
-class StyleRole(BaseModel):
-    """A role is either a paragraph, character, or page definition."""
+class ImageSpec(BaseModel):
+    """Layout controls for embedded document images."""
 
     model_config = ConfigDict(extra="ignore")
 
-    role_type: Literal["paragraph", "character", "page"] = "paragraph"
+    alignment: Literal["left", "center", "right"] = "center"
+    max_width_cm: float | None = Field(default=None, gt=0)
+    space_before_pt: float = 0
+    space_after_pt: float = 0
+
+
+class StyleRole(BaseModel):
+    """A role is a paragraph, character, page, or image definition."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    role_type: Literal["paragraph", "character", "page", "image"] = "paragraph"
     font: FontSpec | None = None
     paragraph: ParagraphSpec | None = None
     page: PageSpec | None = None
+    image: ImageSpec | None = None
 
 
 def _role(
     *,
-    role_type: Literal["paragraph", "character", "page"] = "paragraph",
+    role_type: Literal["paragraph", "character", "page", "image"] = "paragraph",
     font: dict[str, Any] | None = None,
     paragraph: dict[str, Any] | None = None,
     page: dict[str, Any] | None = None,
+    image: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     value = StyleRole(
         role_type=role_type,
-        font=FontSpec(**(font or {})) if role_type != "page" else None,
+        font=FontSpec(**(font or {})) if role_type not in {"page", "image"} else None,
         paragraph=ParagraphSpec(**(paragraph or {})) if role_type == "paragraph" else None,
         page=PageSpec(**(page or {})) if role_type == "page" else None,
+        image=ImageSpec(**(image or {})) if role_type == "image" else None,
     )
     return value.model_dump(exclude_none=True)
 
@@ -145,11 +162,7 @@ def default_roles() -> dict[str, dict[str, Any]]:
             paragraph=centered,
         ),
         "abstract-label": _role(
-            role_type="character",
             font={"chinese_font": "黑体", "western_font": "Times New Roman", "size_pt": 9, "bold": True},
-        ),
-        "abstract-content": _role(
-            font={"chinese_font": "楷体", "western_font": "Times New Roman", "size_pt": 9},
             paragraph={
                 "alignment": "justify",
                 "first_line_indent_pt": 0,
@@ -162,12 +175,12 @@ def default_roles() -> dict[str, dict[str, Any]]:
                 "line_spacing_rule": "minimum",
             },
         ),
-        "keywords-label": _role(
+        "abstract-content": _role(
             role_type="character",
-            font={"chinese_font": "黑体", "western_font": "Times New Roman", "size_pt": 9, "bold": True},
-        ),
-        "keywords-content": _role(
             font={"chinese_font": "楷体", "western_font": "Times New Roman", "size_pt": 9},
+        ),
+        "keywords-label": _role(
+            font={"chinese_font": "黑体", "western_font": "Times New Roman", "size_pt": 9, "bold": True},
             paragraph={
                 "alignment": "justify",
                 "left_indent_pt": 18,
@@ -178,6 +191,10 @@ def default_roles() -> dict[str, dict[str, Any]]:
                 "line_spacing_pt": 12,
                 "line_spacing_rule": "minimum",
             },
+        ),
+        "keywords-content": _role(
+            role_type="character",
+            font={"chinese_font": "楷体", "western_font": "Times New Roman", "size_pt": 9},
         ),
         "heading-1": _role(
             font={"chinese_font": "黑体", "western_font": "Times New Roman", "size_pt": 14, "bold": True},
@@ -211,6 +228,14 @@ def default_roles() -> dict[str, dict[str, Any]]:
             font={"chinese_font": "仿宋", "western_font": "Times New Roman", "size_pt": 14},
             paragraph=no_indent,
         ),
+        "table-row-header": _role(
+            font={"chinese_font": "仿宋", "western_font": "Times New Roman", "size_pt": 14, "bold": True},
+            paragraph=no_indent,
+        ),
+        "table-column-header": _role(
+            font={"chinese_font": "仿宋", "western_font": "Times New Roman", "size_pt": 14, "bold": True},
+            paragraph={**no_indent, "alignment": "center"},
+        ),
         "point": _role(
             role_type="character",
             font={"chinese_font": "楷体", "western_font": "Times New Roman", "size_pt": 16, "bold": True},
@@ -222,6 +247,15 @@ def default_roles() -> dict[str, dict[str, Any]]:
         "figure-caption": _role(
             font={"chinese_font": "黑体", "western_font": "Arial", "size_pt": 14, "bold": True},
             paragraph=centered,
+        ),
+        "image": _role(
+            role_type="image",
+            image={
+                "alignment": "center",
+                "max_width_cm": None,
+                "space_before_pt": 0,
+                "space_after_pt": 0,
+            },
         ),
         "reference-heading": _role(
             font={"chinese_font": "黑体", "western_font": "Times New Roman", "size_pt": 14, "bold": True},
@@ -314,10 +348,11 @@ def _paragraph_from_legacy(value: dict[str, Any], fallback: dict[str, Any]) -> d
 def migrate_roles(raw_roles: Any) -> dict[str, dict[str, Any]]:
     """Merge legacy flat roles into a complete schema-v3 role dictionary.
 
-    Version 2 exposed three controls for each abstract/keyword block.  The
-    paragraph layout now lives on ``*-content`` while ``*-label`` remains a
-    character style, so old ``abstract``/``keywords`` values are folded into
-    the corresponding content role and are not emitted as duplicate roles.
+    Metadata labels are paragraph roles because alignment and indentation
+    apply to their entire inline label/content row. Content roles remain
+    character styles. Older packs stored the paragraph layout on the content
+    role (or on legacy ``abstract`` / ``keywords`` roles), so move that layout
+    while preserving both roles' font settings.
     """
 
     source = raw_roles if isinstance(raw_roles, dict) else {}
@@ -327,27 +362,35 @@ def migrate_roles(raw_roles: Any) -> dict[str, dict[str, Any]]:
         if old_key in source and new_key not in source:
             source = {**source, new_key: source[old_key]}
 
-    for legacy_key, content_key in (("abstract", "abstract-content"), ("keywords", "keywords-content")):
+    for legacy_key, label_key, content_key in (
+        ("abstract", "abstract-label", "abstract-content"),
+        ("keywords", "keywords-label", "keywords-content"),
+    ):
         legacy = source.get(legacy_key)
-        current = source.get(content_key)
-        if isinstance(legacy, dict):
-            merged = dict(legacy)
-            if isinstance(current, dict):
-                legacy_font = legacy.get("font")
-                current_font = current.get("font")
-                legacy_font_dict: dict[str, Any] = legacy_font if isinstance(legacy_font, dict) else {}
-                current_font_dict: dict[str, Any] = current_font if isinstance(current_font, dict) else {}
-                if legacy_font_dict or current_font_dict:
-                    merged["font"] = {
-                        **legacy_font_dict,
-                        **current_font_dict,
-                    }
-                for font_key in ("font_name", "western_font", "font_size_pt", "bold", "italic", "color"):
-                    if font_key in current:
-                        merged[font_key] = current[font_key]
-                if isinstance(current.get("paragraph"), dict):
-                    merged["paragraph"] = current["paragraph"]
-            source = {**source, content_key: merged}
+        label = source.get(label_key)
+        content = source.get(content_key)
+        legacy = legacy if isinstance(legacy, dict) else {}
+        label = label if isinstance(label, dict) else {}
+        content = content if isinstance(content, dict) else {}
+
+        label_has_layout = label.get("role_type") == "paragraph" or _has_paragraph_data(label)
+        content_has_layout = content.get("role_type") == "paragraph" or _has_paragraph_data(content)
+        layout_source = label if label_has_layout else content if content_has_layout else legacy
+        content_font_source = content if content else legacy
+
+        source = {
+            **source,
+            label_key: {
+                "role_type": "paragraph",
+                "font": _font_from_legacy(label, defaults[label_key]),
+                "paragraph": _paragraph_from_legacy(layout_source, defaults[label_key]),
+            },
+            content_key: {
+                "role_type": "character",
+                "font": _font_from_legacy(content_font_source, defaults[content_key]),
+            },
+        }
+        source.pop(legacy_key, None)
 
     migrated: dict[str, dict[str, Any]] = {}
     for role_key in ROLE_KEYS:
@@ -360,6 +403,13 @@ def migrate_roles(raw_roles: Any) -> dict[str, dict[str, Any]]:
             page.update(value.get("page", value))
             migrated[role_key] = _role(role_type="page", page=page)
             continue
+        if role_key == "image":
+            image_data = value.get("image")
+            image = dict(fallback.get("image", {}))
+            if isinstance(image_data, dict):
+                image.update(image_data)
+            migrated[role_key] = _role(role_type="image", image=image)
+            continue
         role_type: Literal["paragraph", "character"] = (
             "character" if fallback.get("role_type") == "character" or role_key == "point" else "paragraph"
         )
@@ -369,3 +419,27 @@ def migrate_roles(raw_roles: Any) -> dict[str, dict[str, Any]]:
             paragraph=_paragraph_from_legacy(value, fallback) if role_type == "paragraph" else None,
         )
     return migrated
+
+
+def _has_paragraph_data(value: dict[str, Any]) -> bool:
+    """Return whether a legacy role contains paragraph-layout fields."""
+
+    if isinstance(value.get("paragraph"), dict):
+        return True
+    return any(
+        key in value
+        for key in (
+            "alignment",
+            "first_line_indent_pt",
+            "left_indent_pt",
+            "right_indent_pt",
+            "space_before_pt",
+            "space_after_pt",
+            "line_spacing_pt",
+            "line_spacing_rule",
+            "line_spacing_multiple",
+            "keep_with_next",
+            "widow_control",
+            "page_break_before",
+        )
+    )

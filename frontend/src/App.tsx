@@ -1,17 +1,34 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  IconArrowsMaximize,
+  IconArrowsMinimize,
+  IconArrowsLeftRight,
+  IconCircleCheck,
+  IconDeviceFloppy,
+  IconDownload,
+  IconFilePlus,
+  IconFileText,
+  IconInfoCircle,
+  IconPencil,
+  IconSettings,
+  IconUpload,
+  IconX,
+} from '@tabler/icons-react'
 
 import {
   artifactUrl,
   createJob,
   createStylePack,
+  fetchArtifactText,
   Job,
   listStylePacks,
   normalizeAndRender,
+  previewUrl,
   saveDraft,
   StylePack,
   Suggestion,
 } from './api'
-import { DocxPreview } from './DocxPreview'
+import { DocxPreview, preloadDocxPreview } from './DocxPreview'
 import { StyleEditor } from './StyleEditor'
 import './styles.css'
 
@@ -40,9 +57,14 @@ export function App() {
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('styles')
   const [downloadsOpen, setDownloadsOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [isRendering, setIsRendering] = useState(false)
+  const [previewFullscreen, setPreviewFullscreen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const settingsTriggerRef = useRef<HTMLButtonElement>(null)
   const settingsCloseRef = useRef<HTMLButtonElement>(null)
+  const settingsDialogRef = useRef<HTMLDivElement>(null)
+  const previewPanelRef = useRef<HTMLElement>(null)
+  const previewFullscreenButtonRef = useRef<HTMLButtonElement>(null)
 
   const selectedPack = useMemo(
     () => stylePacks.find((pack) => pack.id === selectedPackId) ?? null,
@@ -89,6 +111,7 @@ export function App() {
     setDownloadsOpen(false)
     setError(null)
     if (file) {
+      void preloadDocxPreview().catch(() => undefined)
       const text = await file.text()
       setSourceMarkdown(text)
       setOriginalMarkdown(text)
@@ -105,8 +128,10 @@ export function App() {
     setDownloadsOpen(false)
     try {
       const created = await createJob(sourceFile, selectedPack)
-      setJob(created)
-      setOriginalMarkdown(sourceMarkdown)
+      const prepared = await persistHighConfidenceSuggestions(created, sourceMarkdown)
+      setJob(prepared.job)
+      setSourceMarkdown(prepared.markdown)
+      setOriginalMarkdown(prepared.markdown)
     } catch (prepareError) {
       setError(messageFor(prepareError))
     } finally {
@@ -119,8 +144,11 @@ export function App() {
     setBusy(true)
     setError(null)
     try {
-      setJob(await saveDraft(job.id, sourceMarkdown))
-      setOriginalMarkdown(sourceMarkdown)
+      const saved = await saveDraft(job.id, sourceMarkdown)
+      const prepared = await persistHighConfidenceSuggestions(saved, sourceMarkdown)
+      setJob(prepared.job)
+      setSourceMarkdown(prepared.markdown)
+      setOriginalMarkdown(prepared.markdown)
     } catch (saveError) {
       setError(messageFor(saveError))
     } finally {
@@ -131,14 +159,32 @@ export function App() {
   async function handleRender() {
     if (!job || !selectedPack) return
     setBusy(true)
+    setIsRendering(true)
     setError(null)
     setDownloadsOpen(false)
     try {
-      setJob(await normalizeAndRender(job.id, sourceMarkdown, {}))
-      setOriginalMarkdown(sourceMarkdown)
+      const renderedJob = await normalizeAndRender(job.id, sourceMarkdown, {}, selectedPack)
+      setJob(renderedJob)
+      if (renderedJob.artifacts.includes('document.normalized.md')) {
+        try {
+          const normalizedMarkdown = await fetchArtifactText(
+            renderedJob.id,
+            'document.normalized.md',
+            renderedJob.render_revision,
+          )
+          setSourceMarkdown(normalizedMarkdown)
+          setOriginalMarkdown(normalizedMarkdown)
+        } catch (artifactError) {
+          setOriginalMarkdown(sourceMarkdown)
+          setError(`文档已生成，但规范化工作区未能载入：${messageFor(artifactError)}`)
+        }
+      } else {
+        setOriginalMarkdown(sourceMarkdown)
+      }
     } catch (renderError) {
       setError(messageFor(renderError))
     } finally {
+      setIsRendering(false)
       setBusy(false)
     }
   }
@@ -147,36 +193,170 @@ export function App() {
     setSourceMarkdown((current) => applyRoleToMarkdown(current, suggestion))
   }
 
+  async function persistHighConfidenceSuggestions(initialJob: Job, markdown: string): Promise<{ job: Job; markdown: string }> {
+    let currentJob = initialJob
+    let currentMarkdown = markdown
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const nextMarkdown = applyHighConfidenceSuggestions(currentMarkdown, currentJob.suggestions)
+      if (nextMarkdown === currentMarkdown) return { job: currentJob, markdown: currentMarkdown }
+      currentMarkdown = nextMarkdown
+      currentJob = await saveDraft(currentJob.id, currentMarkdown)
+    }
+    return { job: currentJob, markdown: currentMarkdown }
+  }
+
   function openSettings() {
     setSettingsOpen(true)
-    window.requestAnimationFrame(() => settingsCloseRef.current?.focus())
   }
 
   function closeSettings() {
     setSettingsOpen(false)
-    window.requestAnimationFrame(() => settingsTriggerRef.current?.focus())
+    settingsTriggerRef.current?.focus()
   }
+
+  useEffect(() => {
+    if (!settingsOpen) return undefined
+
+    settingsCloseRef.current?.focus()
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    function handleSettingsKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeSettings()
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const dialog = settingsDialogRef.current
+      if (!dialog) return
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getAttribute('aria-hidden') !== 'true')
+      if (!focusable.length) {
+        event.preventDefault()
+        return
+      }
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    window.addEventListener('keydown', handleSettingsKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleSettingsKeyDown)
+    }
+  }, [settingsOpen])
+
+  useEffect(() => {
+    if (!previewFullscreen) return undefined
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    previewFullscreenButtonRef.current?.focus()
+
+    function handlePreviewKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setPreviewFullscreen(false)
+        previewFullscreenButtonRef.current?.focus()
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const dialog = previewPanelRef.current
+      if (!dialog) return
+      const focusable = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], iframe, [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getAttribute('aria-hidden') !== 'true')
+      if (!focusable.length) {
+        event.preventDefault()
+        return
+      }
+
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    window.addEventListener('keydown', handlePreviewKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handlePreviewKeyDown)
+    }
+  }, [previewFullscreen])
 
   return (
     <main className="app-shell">
       <header className="app-header">
-        <div>
-          <h1>Doc Converter</h1>
-          <p>本地转换，不调用 AI，也不上传文档。</p>
+        <div className="brand-lockup">
+          <span className="brand-mark-frame">
+            <img alt="" className="brand-mark" src="/assets/doc-converter-mark.png" />
+          </span>
+          <div>
+            <h1>Doc Converter</h1>
+            <p>Markdown 转 DOCX</p>
+          </div>
         </div>
-        <span className="local-status">仅本机运行</span>
+        <p className="brand-tagline">让内容自由流转</p>
       </header>
 
       <section className="workspace" aria-label="Markdown 转 DOCX 工作区">
         <section className="markdown-panel" aria-label="Markdown 工作区">
-          <div className="section-heading">
-            <span>01</span>
-            <h2>Markdown 工作副本</h2>
+          <div className="panel-title">
+            <span className="section-number">01</span>
+            <div>
+              <h2>源文件工作区</h2>
+              <p>选择 Markdown 文件或直接编辑内容。</p>
+            </div>
           </div>
-          <label className="field-label" htmlFor="source-file">选择 Markdown 文件</label>
-          <input accept=".md,.markdown,text/markdown" id="source-file" onChange={handleFileChange} type="file" />
-          <p className="field-help">只编辑本机工作副本，源文件不会被改动。</p>
-          <label className="field-label" htmlFor="markdown-draft">Markdown 工作副本</label>
+          <div className="file-picker">
+            <IconFileText aria-hidden="true" size={30} stroke={1.8} />
+            <label className="file-select-button" htmlFor="source-file">
+              <IconUpload aria-hidden="true" size={18} stroke={1.8} />
+              选择文件
+            </label>
+            <input
+              accept=".md,.markdown,text/markdown"
+              aria-label="选择 Markdown 文件"
+              className="file-input-hidden"
+              id="source-file"
+              onChange={handleFileChange}
+              type="file"
+            />
+            <span className="file-name" title={sourceFile?.name ?? ''}>
+              {sourceFile?.name ?? '尚未选择文件'}
+            </span>
+          </div>
+          <p className="field-help source-help">源文件不会被改动。</p>
+          <div className="editor-label-row">
+            <label className="editor-label" htmlFor="markdown-draft">
+              <IconPencil aria-hidden="true" size={22} stroke={1.8} />
+              内容工作区
+            </label>
+            <span className="editor-support"><IconInfoCircle aria-hidden="true" size={17} />Markdown</span>
+          </div>
           <textarea
             aria-label="Markdown 工作副本"
             className="markdown-editor"
@@ -186,19 +366,23 @@ export function App() {
             value={sourceMarkdown}
           />
           <div className="draft-status" role="status">
-            {markdownChanged ? '有未保存修改' : '工作副本已保存'}
+            <IconCircleCheck aria-hidden="true" size={18} />
+            {markdownChanged ? '有未保存修改' : '工作区已保存'}
           </div>
           <div className="draft-actions">
-            <button className="secondary-action" disabled={busy || !sourceFile || !selectedPack} onClick={handlePrepare} type="button">
+            <button className="secondary-action primary-draft-action" disabled={busy || !sourceFile || !selectedPack} onClick={handlePrepare} type="button">
+              <IconFilePlus aria-hidden="true" size={20} />
               {job ? '重新建立工作副本' : '建立本地工作副本'}
             </button>
-            <button className="secondary-action" disabled={busy || !job || !markdownChanged} onClick={handleSaveDraft} type="button">保存工作副本</button>
+            <button className="secondary-action" disabled={busy || !job || !markdownChanged} onClick={handleSaveDraft} type="button">
+              <IconDeviceFloppy aria-hidden="true" size={20} />保存工作副本
+            </button>
           </div>
 
           {job?.suggestions.length ? (
             <section className="suggestions" aria-label="结构建议">
               <h3>结构建议</h3>
-              <p className="field-help">建议只是提示，不会阻止生成；应用后会把 role 写入 Markdown Front Matter，并移除原标题区行。</p>
+              <p className="field-help">置信度超过90%的建议会自动应用，其余建议可手动应用。</p>
               {job.suggestions.map((suggestion) => (
                 <article key={`${suggestion.line}-${suggestion.role}`}>
                   <strong>第 {suggestion.line} 行：{SUGGESTION_ROLE_LABELS[suggestion.role] ?? suggestion.role}</strong>
@@ -213,126 +397,180 @@ export function App() {
           {error ? <p className="error-message" role="alert">{error}</p> : null}
         </section>
 
-        <section className="preview-panel" aria-label="DOCX 预览">
+        <section
+          aria-label="DOCX 预览"
+          aria-modal={previewFullscreen ? true : undefined}
+          className={previewFullscreen ? 'preview-panel is-fullscreen' : 'preview-panel'}
+          ref={previewPanelRef}
+          role={previewFullscreen ? 'dialog' : 'region'}
+        >
           <div className="preview-heading">
             <div>
-              <span>02</span>
-              <h2>DOCX 预览</h2>
+              <span className="section-number">02</span>
+              <div>
+                <h2>转换结果预览</h2>
+                <p>转换完成后可在此查看结果。</p>
+              </div>
             </div>
-            {completedJob ? <span className="completed-status">已生成</span> : null}
+            <div className="preview-heading-actions">
+              {completedJob || isRendering ? (
+                <span className={isRendering ? 'processing-status' : 'completed-status'}>
+                  {isRendering ? '正在转换' : '已生成'}
+                </span>
+              ) : null}
+              <button
+                aria-label={previewFullscreen ? '退出全屏预览' : '全屏预览'}
+                className="preview-fullscreen-toggle"
+                onClick={() => setPreviewFullscreen((current) => !current)}
+                ref={previewFullscreenButtonRef}
+                type="button"
+              >
+                {previewFullscreen ? <IconArrowsMinimize aria-hidden="true" size={18} /> : <IconArrowsMaximize aria-hidden="true" size={18} />}
+                <span>{previewFullscreen ? '退出全屏' : '全屏预览'}</span>
+              </button>
+            </div>
           </div>
           {completedJob ? (
-            <div className="preview-frame"><DocxPreview documentUrl={artifactUrl(completedJob.id, completedJob.output_name ?? 'document.docx')} /></div>
+            <div aria-busy={isRendering} className="preview-frame">
+              <DocxPreview
+                documentUrl={artifactUrl(completedJob.id, completedJob.output_name ?? 'document.docx', completedJob.render_revision)}
+                previewUrl={completedJob.preview_ready ? previewUrl(completedJob.id, completedJob.render_revision) : undefined}
+              />
+              {isRendering ? (
+                <div aria-label="正在转换文档" className="preview-progress-overlay" role="status">
+                  <span aria-hidden="true" className="conversion-spinner" />
+                  <strong>正在转换文档…</strong>
+                  <span>完成后会自动更新预览。</span>
+                </div>
+              ) : null}
+            </div>
+          ) : isRendering ? (
+            <div aria-busy="true" aria-label="正在转换文档" className="preview-empty is-converting" role="status">
+              <span aria-hidden="true" className="conversion-spinner" />
+              <p>正在转换文档…</p>
+              <span>页面预览完成后会显示在这里。</span>
+            </div>
           ) : (
             <div className="preview-empty">
-              <p>生成后可在此查看 A4 分页 DOCX 预览。</p>
-              <small>预览按独立 A4 纸张显示，在浏览器内完成；不依赖 LibreOffice 自动转换。</small>
+              <img alt="" aria-hidden="true" src="/assets/preview-empty-state.png" />
+              <p>转换后可在此查看结果预览。</p>
+              <span>文档生成后，页面内容会显示在这里。</span>
             </div>
           )}
         </section>
       </section>
 
-      <section className={`settings-panel ${settingsOpen ? 'is-open' : 'is-collapsed'}`} aria-label="设置面板" id="settings-panel-root">
-        {!settingsOpen ? (
-          <button
-            aria-expanded={false}
-            aria-controls="settings-panel-root"
-            aria-label="打开设置"
-            className="settings-fab"
-            onClick={openSettings}
-            ref={settingsTriggerRef}
-            type="button"
-          >
-            ⚙ 设置
-          </button>
-        ) : (
-          <div className="settings-shell">
-            <div className="settings-heading">
-              <div>
-                <span>03</span>
-                <h2>样式设置</h2>
-              </div>
-              <div className="settings-heading-actions">
-                <button aria-label="收起设置" className="settings-close" onClick={closeSettings} ref={settingsCloseRef} type="button">收起设置</button>
-              </div>
+      <button
+        aria-hidden={!settingsOpen}
+        aria-label="关闭设置"
+        className={settingsOpen ? 'settings-backdrop is-open' : 'settings-backdrop'}
+        onClick={closeSettings}
+        tabIndex={-1}
+        type="button"
+      />
+
+      <section
+        aria-hidden={!settingsOpen}
+        aria-label="设置面板"
+        className={settingsOpen ? 'settings-panel is-open' : 'settings-panel'}
+        id="settings-panel-root"
+      >
+        <div
+          aria-labelledby="settings-dialog-title"
+          aria-modal={settingsOpen}
+          className="settings-shell"
+          ref={settingsDialogRef}
+          role="dialog"
+        >
+          <div className="settings-heading">
+            <div>
+              <span className="section-number">03</span>
+              <h2 id="settings-dialog-title">样式设置</h2>
             </div>
-            <div aria-label="设置分类" className="settings-tabs" role="tablist">
-              {([
-                ['styles', '样式角色'],
-                ['page', '页面设置'],
-              ] as const).map(([tab, label]) => (
-                <button
-                  aria-controls={`settings-panel-${tab}`}
-                  aria-selected={settingsTab === tab}
-                  className="settings-tab"
-                  id={`settings-tab-${tab}`}
-                  key={tab}
-                  onClick={() => setSettingsTab(tab)}
-                  role="tab"
-                  type="button"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="settings-content">
-              {settingsTab === 'styles' ? (
-                <div aria-labelledby="settings-tab-styles" id="settings-panel-styles" role="tabpanel">
-                  <label className="field-label" htmlFor="style-pack">DOCX 样式组合</label>
-                  <select id="style-pack" onChange={(event) => setSelectedPackId(event.target.value)} value={selectedPackId}>
-                    {stylePacks.map((pack) => <option key={pack.id} value={pack.id}>{pack.name} · v{pack.version}</option>)}
-                  </select>
-                  <form className="new-pack-form" onSubmit={handleCreateStylePack}>
-                    <label className="field-label" htmlFor="new-style-pack">新建样式组合</label>
-                    <div>
-                      <input id="new-style-pack" onChange={(event) => setNewPackName(event.target.value)} placeholder="例如：公司报告" value={newPackName} />
-                      <button disabled={busy || !newPackName.trim()} type="submit">保存</button>
-                    </div>
-                  </form>
-                  {selectedPack ? (
-                    <StyleEditor
-                      disabled={busy}
-                      key={`${selectedPack.id}-${selectedPack.version}-roles`}
-                      onSaved={(savedPack) => {
-                        setStylePacks((packs) => packs.map((pack) => (pack.id === savedPack.id ? savedPack : pack)))
-                        setSelectedPackId(savedPack.id)
-                      }}
-                      pack={selectedPack}
-                      section="roles"
-                    />
-                  ) : <p className="field-help">正在加载本机样式组合。</p>}
-                </div>
-              ) : null}
-              {settingsTab === 'page' ? (
-                <div aria-labelledby="settings-tab-page" id="settings-panel-page" role="tabpanel">
-                  {selectedPack ? (
-                    <StyleEditor
-                      disabled={busy}
-                      key={`${selectedPack.id}-${selectedPack.version}-page`}
-                      onSaved={(savedPack) => {
-                        setStylePacks((packs) => packs.map((pack) => (pack.id === savedPack.id ? savedPack : pack)))
-                        setSelectedPackId(savedPack.id)
-                      }}
-                      pack={selectedPack}
-                      section="page"
-                    />
-                  ) : <p className="field-help">正在加载本机样式组合。</p>}
-                </div>
-              ) : null}
+            <div className="settings-heading-actions">
+              <button aria-label="收起设置" className="settings-close" onClick={closeSettings} ref={settingsCloseRef} type="button">
+                <IconX aria-hidden="true" size={18} />
+                收起设置
+              </button>
             </div>
           </div>
-        )}
+          <div aria-label="设置分类" className="settings-tabs" role="tablist">
+            {([
+              ['styles', '样式角色'],
+              ['page', '页面设置'],
+            ] as const).map(([tab, label]) => (
+              <button
+                aria-controls={`settings-panel-${tab}`}
+                aria-selected={settingsTab === tab}
+                className="settings-tab"
+                id={`settings-tab-${tab}`}
+                key={tab}
+                onClick={() => setSettingsTab(tab)}
+                role="tab"
+                type="button"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="settings-content">
+            {settingsTab === 'styles' ? (
+              <div aria-labelledby="settings-tab-styles" id="settings-panel-styles" role="tabpanel">
+                <label className="field-label" htmlFor="style-pack">DOCX 样式组合</label>
+                <select id="style-pack" onChange={(event) => setSelectedPackId(event.target.value)} value={selectedPackId}>
+                  {stylePacks.map((pack) => <option key={pack.id} value={pack.id}>{pack.name} · v{pack.version}</option>)}
+                </select>
+                <form className="new-pack-form" onSubmit={handleCreateStylePack}>
+                  <label className="field-label" htmlFor="new-style-pack">新建样式组合</label>
+                  <div>
+                    <input id="new-style-pack" onChange={(event) => setNewPackName(event.target.value)} placeholder="例如：公司报告" value={newPackName} />
+                    <button disabled={busy || !newPackName.trim()} type="submit">保存</button>
+                  </div>
+                </form>
+                {selectedPack ? (
+                  <StyleEditor
+                    disabled={busy}
+                    key={`${selectedPack.id}-${selectedPack.version}-roles`}
+                    onSaved={(savedPack) => {
+                      setStylePacks((packs) => packs.map((pack) => (pack.id === savedPack.id ? savedPack : pack)))
+                      setSelectedPackId(savedPack.id)
+                    }}
+                    pack={selectedPack}
+                    section="roles"
+                  />
+                ) : <p className="field-help">正在加载本机样式组合。</p>}
+              </div>
+            ) : null}
+            {settingsTab === 'page' ? (
+              <div aria-labelledby="settings-tab-page" id="settings-panel-page" role="tabpanel">
+                {selectedPack ? (
+                  <StyleEditor
+                    disabled={busy}
+                    key={`${selectedPack.id}-${selectedPack.version}-page`}
+                    onSaved={(savedPack) => {
+                      setStylePacks((packs) => packs.map((pack) => (pack.id === savedPack.id ? savedPack : pack)))
+                      setSelectedPackId(savedPack.id)
+                    }}
+                    pack={selectedPack}
+                    section="page"
+                  />
+                ) : <p className="field-help">正在加载本机样式组合。</p>}
+              </div>
+            ) : null}
+          </div>
+        </div>
       </section>
 
-      <div aria-label="快捷操作" className={`floating-actions ${settingsOpen ? 'is-settings-open' : ''}`}>
+      <div aria-label="快捷操作" className="floating-actions">
         <button
-          aria-label="生成"
+          aria-label={isRendering ? '正在转换' : '生成'}
           className="action-fab generate-fab"
           disabled={busy || !job || !selectedPack || !sourceMarkdown.trim()}
           onClick={handleRender}
           type="button"
         >
-          生成
+          <IconArrowsLeftRight aria-hidden="true" size={19} />
+          <span>{isRendering ? '正在转换…' : '开始转换'}</span>
         </button>
         <div className="download-action">
           <button
@@ -343,7 +581,8 @@ export function App() {
             onClick={() => setDownloadsOpen((open) => !open)}
             type="button"
           >
-            下载
+            <IconDownload aria-hidden="true" size={19} />
+            <span>下载</span>
           </button>
           {downloadsOpen && completedJob ? (
             <div aria-label="任务产物下载" className="download-popover">
@@ -355,6 +594,18 @@ export function App() {
             </div>
           ) : null}
         </div>
+        <button
+          aria-controls="settings-panel-root"
+          aria-expanded={settingsOpen}
+          aria-label="打开设置"
+          className="settings-fab"
+          onClick={openSettings}
+          ref={settingsTriggerRef}
+          type="button"
+        >
+          <IconSettings aria-hidden="true" size={20} />
+          <span>设置</span>
+        </button>
       </div>
     </main>
   )
@@ -387,6 +638,14 @@ export function applyRoleToMarkdown(markdown: string, suggestion: Suggestion): s
     }
   }
   return trimMarkdownLines(['---', ...entry, '---', '', ...bodyLines])
+}
+
+export function applyHighConfidenceSuggestions(markdown: string, suggestions: Suggestion[]): string {
+  return suggestions
+    .filter((suggestion) => suggestion.score > 0.9)
+    .slice()
+    .sort((left, right) => right.line - left.line)
+    .reduce((current, suggestion) => applyRoleToMarkdown(current, suggestion), markdown)
 }
 
 function metadataKeyForRole(role: string): string | null {

@@ -38,14 +38,144 @@ def test_new_style_pack_contains_all_roles_and_independent_font_slots() -> None:
     assert pack.roles["body-paragraph"]["paragraph"]["first_line_indent_unit"] == "character"
     assert pack.roles["body-paragraph"]["paragraph"]["line_spacing_rule"] == "exact"
     assert pack.roles["abstract-content"]["font"]["chinese_font"] == "楷体"
-    assert pack.roles["keywords-content"]["paragraph"]["left_indent_unit"] == "character"
-    assert pack.roles["abstract-label"]["role_type"] == "character"
-    assert pack.roles["keywords-label"]["role_type"] == "character"
-    assert pack.roles["abstract-content"]["role_type"] == "paragraph"
-    assert pack.roles["keywords-content"]["role_type"] == "paragraph"
+    assert pack.roles["keywords-label"]["paragraph"]["left_indent_unit"] == "character"
+    assert pack.roles["abstract-label"]["role_type"] == "paragraph"
+    assert pack.roles["keywords-label"]["role_type"] == "paragraph"
+    assert pack.roles["abstract-content"]["role_type"] == "character"
+    assert pack.roles["keywords-content"]["role_type"] == "character"
     assert {f"heading-{level}" for level in range(1, 7)} <= set(pack.roles)
     assert pack.roles["page"]["page"]["page_width_cm"] == 21.0
     assert pack.roles["page"]["page"]["page_height_cm"] == 29.7
+
+
+def test_default_roles_include_independent_table_headers_and_image_layout() -> None:
+    roles = default_roles()
+
+    assert roles["table-row-header"]["role_type"] == "paragraph"
+    assert roles["table-column-header"]["role_type"] == "paragraph"
+    assert roles["table-row-header"]["font"]["bold"] is True
+    assert roles["table-column-header"]["font"]["bold"] is True
+    assert roles["table-row-header"]["paragraph"]["alignment"] == "left"
+    assert roles["table-column-header"]["paragraph"]["alignment"] == "center"
+    assert roles["image"]["role_type"] == "image"
+    assert roles["image"]["image"]["alignment"] == "center"
+    assert roles["image"]["image"].get("max_width_cm") is None
+    assert roles["image"]["image"]["space_before_pt"] == 0
+    assert roles["image"]["image"]["space_after_pt"] == 0
+
+
+def test_style_pack_migrates_custom_image_and_table_header_roles() -> None:
+    migrated = StylePack.model_validate(
+        {
+            "id": "new-roles",
+            "name": "图片与表格标题",
+            "format_id": "docx",
+            "created_at": "2026-09-18T00:00:00Z",
+            "roles": {
+                "image": {
+                    "role_type": "image",
+                    "image": {
+                        "alignment": "right",
+                        "max_width_cm": 8.5,
+                        "space_before_pt": 2.5,
+                        "space_after_pt": 4,
+                    },
+                },
+                "table-row-header": {
+                    "role_type": "paragraph",
+                    "font": {"chinese_font": "黑体", "size_pt": 12, "bold": True},
+                    "paragraph": {"alignment": "right"},
+                },
+            },
+        }
+    )
+
+    assert migrated.roles["image"]["image"] == {
+        "alignment": "right",
+        "max_width_cm": 8.5,
+        "space_before_pt": 2.5,
+        "space_after_pt": 4.0,
+    }
+    assert migrated.roles["table-row-header"]["font"]["chinese_font"] == "黑体"
+    assert migrated.roles["table-row-header"]["paragraph"]["alignment"] == "right"
+    assert migrated.roles["table-column-header"] == default_roles()["table-column-header"]
+
+
+def test_v3_metadata_paragraph_settings_move_to_label_roles() -> None:
+    pack = StylePack.model_validate(
+        {
+            "id": "metadata-v3",
+            "name": "旧摘要角色",
+            "format_id": "docx",
+            "version": 3,
+            "created_at": "2026-09-18T00:00:00Z",
+            "schema_version": "docx-style/v3",
+            "roles": {
+                "abstract-label": {
+                    "role_type": "character",
+                    "font": {
+                        "chinese_font": "黑体",
+                        "western_font": "Arial",
+                        "size_pt": 9,
+                        "bold": True,
+                    },
+                },
+                "abstract-content": {
+                    "role_type": "paragraph",
+                    "font": {
+                        "chinese_font": "楷体",
+                        "western_font": "Times New Roman",
+                        "size_pt": 10,
+                    },
+                    "paragraph": {
+                        "alignment": "justify",
+                        "first_line_indent_pt": 20,
+                        "first_line_indent_unit": "character",
+                        "line_spacing_pt": 16,
+                    },
+                },
+                "keywords-label": {
+                    "role_type": "character",
+                    "font": {
+                        "chinese_font": "黑体",
+                        "western_font": "Arial",
+                        "size_pt": 9,
+                        "bold": True,
+                    },
+                },
+                "keywords-content": {
+                    "role_type": "paragraph",
+                    "font": {
+                        "chinese_font": "宋体",
+                        "western_font": "Times New Roman",
+                        "size_pt": 11,
+                    },
+                    "paragraph": {
+                        "alignment": "left",
+                        "space_after_pt": 6,
+                    },
+                },
+            },
+        }
+    )
+
+    abstract_label = pack.roles["abstract-label"]
+    abstract_content = pack.roles["abstract-content"]
+    assert abstract_label["role_type"] == "paragraph"
+    assert abstract_label["font"]["chinese_font"] == "黑体"
+    assert abstract_label["paragraph"]["first_line_indent_pt"] == 20
+    assert abstract_label["paragraph"]["first_line_indent_unit"] == "character"
+    assert abstract_content["role_type"] == "character"
+    assert abstract_content["font"]["chinese_font"] == "楷体"
+    assert "paragraph" not in abstract_content
+
+    keywords_label = pack.roles["keywords-label"]
+    keywords_content = pack.roles["keywords-content"]
+    assert keywords_label["role_type"] == "paragraph"
+    assert keywords_label["paragraph"]["space_after_pt"] == 6
+    assert keywords_content["role_type"] == "character"
+    assert keywords_content["font"]["chinese_font"] == "宋体"
+    assert "paragraph" not in keywords_content
 
 
 def test_legacy_style_pack_is_migrated_without_losing_custom_values(tmp_path) -> None:
@@ -80,7 +210,7 @@ def test_legacy_style_pack_is_migrated_without_losing_custom_values(tmp_path) ->
     assert "keywords" not in migrated.roles
 
 
-def test_v2_abstract_and_keyword_roles_migrate_to_content_paragraph_roles() -> None:
+def test_v2_abstract_and_keyword_roles_migrate_to_label_paragraph_roles() -> None:
     migrated = StylePack.model_validate(
         {
             "id": "v2",
@@ -95,11 +225,16 @@ def test_v2_abstract_and_keyword_roles_migrate_to_content_paragraph_roles() -> N
         }
     )
 
-    assert migrated.roles["abstract-content"]["role_type"] == "paragraph"
+    assert migrated.roles["abstract-label"]["role_type"] == "paragraph"
+    assert migrated.roles["abstract-content"]["role_type"] == "character"
     assert migrated.roles["abstract-content"]["font"]["chinese_font"] == "楷体"
     assert migrated.roles["abstract-content"]["font"]["size_pt"] == 11
-    assert migrated.roles["abstract-content"]["paragraph"]["first_line_indent_pt"] == 24
-    assert migrated.roles["keywords-content"]["role_type"] == "paragraph"
+    assert migrated.roles["abstract-label"]["paragraph"]["first_line_indent_pt"] == 24
+    assert migrated.roles["abstract-label"]["paragraph"]["first_line_indent_unit"] == "pt"
+    assert migrated.roles["keywords-label"]["role_type"] == "paragraph"
+    assert migrated.roles["keywords-content"]["role_type"] == "character"
+    assert migrated.roles["keywords-content"]["font"]["chinese_font"] == "宋体"
+    assert migrated.roles["keywords-content"]["font"]["size_pt"] == 10
 
 
 def test_style_pack_migrates_indent_units_and_line_spacing_modes() -> None:

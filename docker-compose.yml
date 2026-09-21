@@ -11,6 +11,10 @@ services:
       DOC_CONVERTER_DATA_ROOT: /data
     volumes:
       - doc-converter-data:/data
+      - type: bind
+        source: ${DOC_CONVERTER_WINDOWS_FONTS:-C:/Windows/Fonts}
+        target: /usr/local/share/fonts/windows
+        read_only: true
     init: true
     restart: unless-stopped
 

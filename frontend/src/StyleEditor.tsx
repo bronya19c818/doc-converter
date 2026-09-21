@@ -12,10 +12,11 @@ type StyleEditorProps = {
 type RoleSection = 'pre' | 'body' | 'post'
 
 type RoleValue = {
-  role_type: 'paragraph' | 'character' | 'page'
+  role_type: 'paragraph' | 'character' | 'page' | 'image'
   font?: Record<string, unknown>
   paragraph?: Record<string, unknown>
   page?: Record<string, unknown>
+  image?: Record<string, unknown>
 }
 
 type RoleMap = Record<string, RoleValue>
@@ -39,8 +40,11 @@ const ROLE_LABELS: Record<string, string> = {
   'body-paragraph': '段落正文',
   'body-table': '表格正文',
   point: '要点',
-  'table-caption': '表格题',
-  'figure-caption': '图表题',
+  'table-caption': '表格标题',
+  'table-row-header': '行标题',
+  'table-column-header': '列标题',
+  'figure-caption': '图片标题',
+  image: '图片样式',
   'reference-heading': '参考文献标题',
   'reference-entry': '参考文献条目',
   footer: '页脚',
@@ -60,8 +64,9 @@ const GROUPS: Record<RoleSection, Array<{ title: string; roles: string[] }>> = {
   ],
   body: [
     { title: '标题层级', roles: ['heading-1', 'heading-2', 'heading-3', 'heading-4', 'heading-5', 'heading-6'] },
-    { title: '正文', roles: ['body-paragraph', 'body-table'] },
-    { title: '要点与图表', roles: ['point', 'table-caption', 'figure-caption'] },
+    { title: '正文', roles: ['body-paragraph', 'point'] },
+    { title: '表格', roles: ['table-caption', 'table-row-header', 'table-column-header', 'body-table'] },
+    { title: '图片', roles: ['figure-caption', 'image'] },
   ],
   post: [
     { title: '参考文献（检测到“参考文献”标题后生效）', roles: ['reference-heading', 'reference-entry'] },
@@ -211,12 +216,58 @@ function RoleEditor({
   const label = ROLE_LABELS[roleKey] ?? roleKey
   const font = role.font ?? {}
   const paragraph = role.paragraph ?? {}
+  const image = role.image ?? {}
   const characterOnly = role.role_type === 'character'
   const fontSize = numberValue(font.size_pt, 16)
   const lineSpacingRule = lineSpacingRuleValue(paragraph.line_spacing_rule)
   const lineSpacingValue = lineSpacingRule === 'multiple'
     ? numberValue(paragraph.line_spacing_multiple, 1.5)
     : numberValue(paragraph.line_spacing_pt, 29)
+  if (role.role_type === 'image') {
+    return (
+      <article className="role-card">
+        <h4>{label}</h4>
+        <div className="style-grid">
+          <label>
+            {label}对齐
+            <select aria-label={`${label}对齐`} disabled={disabled} onChange={(event) => onChange(['image', 'alignment'], event.target.value)} value={stringValue(image.alignment, 'center')}>
+              <option value="left">左对齐</option>
+              <option value="center">居中</option>
+              <option value="right">右对齐</option>
+            </select>
+          </label>
+          <label>
+            {label}最大宽度（厘米）
+            <input
+              aria-label={`${label}最大宽度（厘米）`}
+              disabled={disabled}
+              min="0.1"
+              onChange={(event) => onChange(['image', 'max_width_cm'], event.target.value === '' ? null : Number(event.target.value))}
+              placeholder="按正文宽度适配"
+              step="0.1"
+              type="number"
+              value={typeof image.max_width_cm === 'number' ? image.max_width_cm : ''}
+            />
+          </label>
+          {(['space_before_pt', 'space_after_pt'] as const).map((key) => (
+            <label key={key}>
+              {paragraphLabel(label, key)}
+              <input
+                aria-label={paragraphLabel(label, key)}
+                disabled={disabled}
+                min="0"
+                onChange={(event) => onChange(['image', key], Number(event.target.value))}
+                step="0.5"
+                type="number"
+                value={numberValue(image[key], 0)}
+              />
+            </label>
+          ))}
+        </div>
+        <p className="field-help">留空时按正文宽度适配，较小图片不会放大。</p>
+      </article>
+    )
+  }
   return (
     <article className="role-card">
       <h4>{label}</h4>
@@ -364,22 +415,48 @@ function editableRolesFor(pack: StylePack): RoleMap {
       font: { ...(value.font as Record<string, unknown> | undefined) },
       paragraph: { ...(value.paragraph as Record<string, unknown> | undefined) },
       page: { ...(value.page as Record<string, unknown> | undefined) },
+      image: { ...(value.image as Record<string, unknown> | undefined) },
     }
   })
   const defaults = defaultRoleMap()
   if (roles.body && !roles['body-paragraph']) roles['body-paragraph'] = roles.body
-  // v2 style packs used a separate paragraph role named ``abstract`` or
-  // ``keywords``.  Reuse those values as the new content paragraph role so
-  // the editor never shows a third, ambiguous card.
-  if (roles.abstract && !roles['abstract-content']) roles['abstract-content'] = { ...roles.abstract, role_type: 'paragraph' }
-  if (roles.keywords && !roles['keywords-content']) roles['keywords-content'] = { ...roles.keywords, role_type: 'paragraph' }
+  const metadataRolePairs = [
+    ['abstract', 'abstract-label', 'abstract-content'],
+    ['keywords', 'keywords-label', 'keywords-content'],
+  ] as const
+  metadataRolePairs.forEach(([legacyKey, labelKey, contentKey]) => {
+    const labelRole = roles[labelKey]
+    const contentRole = roles[contentKey]
+    const legacyRole = roles[legacyKey]
+    const paragraphRole = labelRole?.role_type === 'paragraph'
+      ? labelRole
+      : contentRole?.role_type === 'paragraph' ? contentRole : legacyRole
+    const contentFontRole = contentRole?.font ? contentRole : legacyRole
+    roles[labelKey] = {
+      ...defaults[labelKey],
+      ...labelRole,
+      role_type: 'paragraph',
+      font: { ...defaults[labelKey].font, ...labelRole?.font },
+      paragraph: { ...defaults[labelKey].paragraph, ...paragraphRole?.paragraph },
+    }
+    roles[contentKey] = {
+      ...defaults[contentKey],
+      ...contentRole,
+      role_type: 'character',
+      font: { ...defaults[contentKey].font, ...contentFontRole?.font },
+      paragraph: {},
+    }
+    delete roles[legacyKey]
+  })
   Object.entries(defaults).forEach(([key, value]) => {
+    const role = roles[key]
     roles[key] = {
       ...value,
-      ...roles[key],
-      font: { ...value.font, ...roles[key]?.font },
-      paragraph: { ...value.paragraph, ...roles[key]?.paragraph },
-      page: { ...value.page, ...roles[key]?.page },
+      ...role,
+      font: { ...value.font, ...role?.font },
+      paragraph: role?.role_type === 'character' ? {} : { ...value.paragraph, ...role?.paragraph },
+      page: { ...value.page, ...role?.page },
+      image: { ...value.image, ...role?.image },
     }
   })
   return roles
@@ -403,25 +480,27 @@ function defaultRoleMap(): RoleMap {
   const font = { chinese_font: '仿宋', western_font: 'Times New Roman', size_pt: 16, bold: false, italic: false }
   const roles: RoleMap = {}
   Object.keys(ROLE_LABELS).forEach((key) => {
-    roles[key] = { role_type: key === 'point' ? 'character' : 'paragraph', font: { ...font }, paragraph: { ...paragraph } }
+    roles[key] = key === 'image'
+      ? { role_type: 'image', image: { alignment: 'center', space_before_pt: 0, space_after_pt: 0 } }
+      : { role_type: key === 'point' ? 'character' : 'paragraph', font: { ...font }, paragraph: { ...paragraph } }
   })
   roles['document-title'] = { role_type: 'paragraph', font: { ...font, chinese_font: '宋体', size_pt: 22, bold: true }, paragraph: { ...paragraph, alignment: 'center' } }
   roles['document-subtitle'] = { role_type: 'paragraph', font: { ...font, chinese_font: '楷体', bold: true }, paragraph: { ...paragraph, alignment: 'center' } }
   roles['organization-department'] = { ...roles['document-subtitle'] }
   roles.author = { ...roles['document-subtitle'] }
   roles.date = { ...roles['document-subtitle'] }
-  roles['abstract-label'] = { role_type: 'character', font: { ...font, chinese_font: '黑体', size_pt: 9, bold: true } }
-  roles['abstract-content'] = {
+  roles['abstract-label'] = {
     role_type: 'paragraph',
-    font: { ...font, chinese_font: '楷体', size_pt: 9 },
+    font: { ...font, chinese_font: '黑体', size_pt: 9, bold: true },
     paragraph: { ...paragraph, alignment: 'justify', first_line_indent_pt: 0, left_indent_pt: 18, right_indent_pt: 18, line_spacing_pt: 12, line_spacing_rule: 'minimum', space_before_pt: 12 },
   }
-  roles['keywords-label'] = { role_type: 'character', font: { ...font, chinese_font: '黑体', size_pt: 9, bold: true } }
-  roles['keywords-content'] = {
+  roles['abstract-content'] = { role_type: 'character', font: { ...font, chinese_font: '楷体', size_pt: 9 }, paragraph: {} }
+  roles['keywords-label'] = {
     role_type: 'paragraph',
-    font: { ...font, chinese_font: '楷体', size_pt: 9 },
+    font: { ...font, chinese_font: '黑体', size_pt: 9, bold: true },
     paragraph: { ...paragraph, alignment: 'justify', first_line_indent_pt: 0, left_indent_pt: 18, right_indent_pt: 18, line_spacing_pt: 12, line_spacing_rule: 'minimum', space_after_pt: 5 },
   }
+  roles['keywords-content'] = { role_type: 'character', font: { ...font, chinese_font: '楷体', size_pt: 9 }, paragraph: {} }
   roles['heading-1'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 14, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 18, line_spacing_rule: 'minimum' } }
   roles['heading-2'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 12, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 12, line_spacing_rule: 'minimum' } }
   roles['heading-3'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 10.5, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 12, line_spacing_rule: 'minimum' } }
@@ -429,6 +508,8 @@ function defaultRoleMap(): RoleMap {
   roles['heading-5'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 7.5, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 12, line_spacing_rule: 'minimum' } }
   roles['heading-6'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 6.5, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 12, line_spacing_rule: 'minimum' } }
   roles['body-table'] = { role_type: 'paragraph', font: { ...font, size_pt: 14 }, paragraph: { ...paragraph, first_line_indent_pt: 0 } }
+  roles['table-row-header'] = { ...roles['body-table'], font: { ...font, size_pt: 14, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, alignment: 'left' } }
+  roles['table-column-header'] = { ...roles['body-table'], font: { ...font, size_pt: 14, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, alignment: 'center' } }
   roles['reference-heading'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 14, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 18, line_spacing_rule: 'minimum' } }
   roles['reference-entry'] = { role_type: 'paragraph', font: { ...font, chinese_font: '宋体', western_font: 'Times New Roman', size_pt: 7.5 }, paragraph: { ...paragraph, alignment: 'justify', first_line_indent_pt: 0, line_spacing_pt: 12, line_spacing_rule: 'minimum' } }
   roles.footer = { role_type: 'paragraph', font: { ...font, chinese_font: '宋体', size_pt: 14 }, paragraph: { ...paragraph, alignment: 'center' } }
@@ -451,7 +532,7 @@ function updateRole(setRoles: React.Dispatch<React.SetStateAction<RoleMap>>, rol
 }
 
 function roleType(value: unknown): RoleValue['role_type'] {
-  return value === 'character' || value === 'page' ? value : 'paragraph'
+  return value === 'character' || value === 'page' || value === 'image' ? value : 'paragraph'
 }
 
 function stringValue(value: unknown, fallback: string): string {

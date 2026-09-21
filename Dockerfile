@@ -17,20 +17,23 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HOME=/data
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y pandoc curl \
+    && apt-get install --no-install-recommends -y pandoc curl libreoffice-writer fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
-RUN pip install --no-cache-dir .
 COPY --from=frontend-build /build/src/doc_converter/web/ ./src/doc_converter/web/
+RUN pip install --no-cache-dir .
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN useradd --create-home --uid 1000 appuser \
+    && chmod +x /usr/local/bin/docker-entrypoint.sh \
     && mkdir -p /data \
     && chown -R appuser:appuser /app /data
 
 USER appuser
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 EXPOSE 8765
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

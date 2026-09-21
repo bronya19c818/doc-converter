@@ -10,6 +10,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@tabler/icons-react": "^3.47.0",
     "@vitejs/plugin-react": "latest",
     "docx-preview": "latest",
     "react": "latest",

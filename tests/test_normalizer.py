@@ -1,4 +1,4 @@
-from doc_converter.normalizer import normalize_markdown
+from doc_converter.normalizer import _normalize_html_images, normalize_markdown
 
 
 def test_confirmed_document_title_is_moved_to_front_matter() -> None:
@@ -36,6 +36,49 @@ def test_normalization_preserves_image_link_table_and_body_text() -> None:
     assert result.report["integrity"]["images"] == ["images/layout.png"]
     assert result.report["integrity"]["links"] == ["https://example.com/project"]
     assert "| A | 10 |" in result.markdown
+
+
+def test_normalization_tracks_inline_reference_html_and_split_line_images() -> None:
+    source = """![inline](<images/inline.png> "inline title")
+
+![full][full-image]
+
+[full-image]: images/full.png
+
+![collapsed][]
+
+[collapsed]: images/collapsed.png
+
+![images/shortcut.png]
+
+[images/shortcut.png]: images/shortcut.png
+
+<IMG src='images/html.png' alt='HTML image' />
+
+![split line]
+(images/split.png)
+"""
+
+    result = normalize_markdown(source, filename="图片引用.md", confirmed_roles={})
+
+    assert result.report["integrity"]["images"] == [
+        "images/inline.png",
+        "images/full.png",
+        "images/collapsed.png",
+        "images/shortcut.png",
+        "images/html.png",
+        "images/split.png",
+    ]
+    assert result.report["integrity"]["passed"] is True
+
+
+def test_html_image_normalization_leaves_inline_code_untouched() -> None:
+    source = '`<img src="example.png">` and <IMG src="real.png" alt="real image">'
+
+    normalized = _normalize_html_images(source)
+
+    assert '`<img src="example.png">`' in normalized
+    assert '![real image](<real.png>)' in normalized
 
 
 def test_front_matter_metadata_is_structured_in_fixed_display_order() -> None:
@@ -378,6 +421,23 @@ def test_technical_standard_numbered_headings_support_bare_subheadings() -> None
     assert "#### 5.1.1 全面盘点" in result.markdown
 
 
+def test_technical_standard_bare_root_and_decimal_headings_are_promoted() -> None:
+    source = """Q/GDW 1234—2024
+
+1 范围
+
+1.1 适用范围
+
+1.1.1 特殊范围
+"""
+
+    result = normalize_markdown(source, filename="标准.md", confirmed_roles={})
+
+    assert "## 1 范围" in result.markdown
+    assert "### 1.1 适用范围" in result.markdown
+    assert "#### 1.1.1 特殊范围" in result.markdown
+
+
 def test_flattened_heading_siblings_keep_the_same_level() -> None:
     source = """# 方案
 
@@ -404,6 +464,152 @@ def test_flattened_heading_siblings_keep_the_same_level() -> None:
     assert "## （二）第二子项" in result.markdown
     assert "### （1）细分一" in result.markdown
     assert "### （2）细分二" in result.markdown
+
+
+def test_plain_third_level_heading_after_chinese_parent_is_promoted() -> None:
+    source = """# 四、建构求索
+
+# （一）技术突破路径
+
+1. “0”到“1”：行业垂域大模型与智能体的重点攻坚
+
+行业垂域大模型通常建立在基础大模型之上。
+"""
+
+    result = normalize_markdown(source, filename="研究报告.md", confirmed_roles={})
+
+    assert "### 1. “0”到“1”：行业垂域大模型与智能体的重点攻坚" in result.markdown
+
+
+def test_plain_arabic_outline_uses_each_number_component_as_a_level() -> None:
+    cases = [
+        ("1 实施背景", """1 实施背景
+
+1.1 项目背景
+
+1.1.1 政策背景
+
+1.1.1.1 上级要求
+"""),
+        ("1. 实施背景", """1. 实施背景
+
+1.1 项目背景
+
+1.1.1 政策背景
+
+1.1.1.1 上级要求
+"""),
+    ]
+
+    for root_heading, source in cases:
+        result = normalize_markdown(source, filename="技术方案.md", confirmed_roles={})
+
+        assert f"# {root_heading}" in result.markdown
+        assert "## 1.1 项目背景" in result.markdown
+        assert "### 1.1.1 政策背景" in result.markdown
+        assert "#### 1.1.1.1 上级要求" in result.markdown
+
+
+def test_plain_chinese_government_outline_includes_circled_children() -> None:
+    source = """一、实施背景
+
+（一）基本情况
+
+1. 当前现状
+
+（1）具体问题
+
+①具体表现
+
+②另一表现
+"""
+
+    result = normalize_markdown(source, filename="工作报告.md", confirmed_roles={})
+
+    assert "# 一、实施背景" in result.markdown
+    assert "## （一）基本情况" in result.markdown
+    assert "### 1. 当前现状" in result.markdown
+    assert "#### （1）具体问题" in result.markdown
+    assert "##### ①具体表现" in result.markdown
+    assert "##### ②另一表现" in result.markdown
+
+
+def test_chapter_section_and_part_heading_families_follow_context() -> None:
+    chapter_source = """第一章 实施背景
+
+第一节 基本情况
+
+一、现状分析
+
+（一）业务现状
+"""
+    part_source = """第一部分 总体设计
+
+第一章 技术方案
+
+第一节 实施背景
+"""
+
+    chapter_result = normalize_markdown(chapter_source, filename="研究报告.md", confirmed_roles={})
+    part_result = normalize_markdown(part_source, filename="成果报告.md", confirmed_roles={})
+
+    assert "# 第一章 实施背景" in chapter_result.markdown
+    assert "## 第一节 基本情况" in chapter_result.markdown
+    assert "### 一、现状分析" in chapter_result.markdown
+    assert "#### （一）业务现状" in chapter_result.markdown
+    assert "# 第一部分 总体设计" in part_result.markdown
+    assert "## 第一章 技术方案" in part_result.markdown
+    assert "### 第一节 实施背景" in part_result.markdown
+
+
+def test_piece_and_unit_markers_are_recognized_as_outer_sections() -> None:
+    for part_marker in ("第一篇", "第一单元"):
+        source = f"""{part_marker} 总体设计
+
+第一章 技术方案
+"""
+
+        result = normalize_markdown(source, filename="成果报告.md", confirmed_roles={})
+
+        assert f"# {part_marker} 总体设计" in result.markdown
+        assert "## 第一章 技术方案" in result.markdown
+
+
+def test_unnumbered_markdown_headings_keep_their_explicit_levels() -> None:
+    source = """# 实施背景
+
+## 建设目标
+
+### 主要做法
+
+#### 实施成效
+"""
+
+    result = normalize_markdown(source, filename="简版方案.md", confirmed_roles={})
+
+    assert "# 实施背景" in result.markdown
+    assert "## 建设目标" in result.markdown
+    assert "### 主要做法" in result.markdown
+    assert "#### 实施成效" in result.markdown
+
+
+def test_numbered_lists_and_fenced_code_are_not_promoted_to_headings() -> None:
+    source = """# 操作步骤
+
+1. 检查所有待处理文件
+2. 修复发现的问题
+
+```markdown
+1. 示例编号
+```
+"""
+
+    result = normalize_markdown(source, filename="操作步骤.md", confirmed_roles={})
+
+    assert "1. 检查所有待处理文件" in result.markdown
+    assert "2. 修复发现的问题" in result.markdown
+    assert "### 1. 检查所有待处理文件" not in result.markdown
+    assert "```markdown\n1. 示例编号\n```" in result.markdown
 
 
 def test_preprocess_line_mapping_keeps_confirmed_roles_on_original_lines() -> None:

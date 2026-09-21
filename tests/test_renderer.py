@@ -1,7 +1,10 @@
+import struct
 import zipfile
+import zlib
 
 import pytest
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 
 from doc_converter.docx_postprocess import _REFERENCE_HEADING_PATTERN
@@ -41,6 +44,27 @@ department: XX部门
     assert "一、建设背景" in text
     assert "重点内容" in text
     assert document.tables[0].cell(1, 1).text == "10"
+
+
+def test_renderer_adds_half_point_grid_borders_to_tables(tmp_path) -> None:
+    output_path = tmp_path / "table-grid.docx"
+    render_docx(
+        markdown="| 项目 | 数量 |\n| --- | ---: |\n| A | 10 |\n",
+        style_pack=create_style_pack(name="表格边框测试", format_id="docx"),
+        output_path=output_path,
+        work_dir=tmp_path / "work",
+    )
+
+    document = Document(output_path)
+    assert len(document.tables) == 1
+    borders = document.tables[0]._tbl.tblPr.find(qn("w:tblBorders"))
+    assert borders is not None
+    for edge_name in ("top", "bottom", "left", "right", "insideH", "insideV"):
+        edge = borders.find(qn(f"w:{edge_name}"))
+        assert edge is not None
+        assert edge.get(qn("w:val")) == "single"
+        assert edge.get(qn("w:sz")) == "4"
+        assert edge.get(qn("w:color")) == "000000"
 
 
 def test_renderer_extracts_title_area_blocks_from_raw_markdown(tmp_path) -> None:
@@ -118,23 +142,120 @@ title: AI模型助力提升物资采购质量
         "DC_DocumentTitle",
         "DC_Author",
         "DC_OrganizationDepartment",
-        "DC_AbstractContent",
-        "DC_KeywordsContent",
+        "DC_AbstractLabel",
+        "DC_KeywordsLabel",
     }
-    assert any(run.style and run.style.style_id == "DC_AbstractLabel" for paragraph in document.paragraphs for run in paragraph.runs)
-    assert any(run.style and run.style.style_id == "DC_KeywordsLabel" for paragraph in document.paragraphs for run in paragraph.runs)
-    assert any(paragraph.style.style_id == "DC_AbstractContent" for paragraph in document.paragraphs)
-    assert any(paragraph.style.style_id == "DC_KeywordsContent" for paragraph in document.paragraphs)
-    assert document.styles["DC_AbstractLabel"].type == 2  # character style
-    assert document.styles["DC_AbstractContent"].type == 1  # paragraph style
+    assert any(run.style and run.style.style_id == "DC_AbstractContent" for paragraph in document.paragraphs for run in paragraph.runs)
+    assert any(run.style and run.style.style_id == "DC_KeywordsContent" for paragraph in document.paragraphs for run in paragraph.runs)
+    assert any(paragraph.style.style_id == "DC_AbstractLabel" for paragraph in document.paragraphs)
+    assert any(paragraph.style.style_id == "DC_KeywordsLabel" for paragraph in document.paragraphs)
+    assert document.styles["DC_AbstractLabel"].type == 1  # paragraph style
+    assert document.styles["DC_AbstractContent"].type == 2  # character style
     assert document.styles["DC_AbstractLabel"].font.name == "Times New Roman"
     assert document.styles["DC_AbstractContent"].font.name == "Times New Roman"
-    assert {
-        paragraph.style.style_id
-        for row in table.rows
-        for cell in row.cells
-        for paragraph in cell.paragraphs
-    } == {"DC_TableBody"}
+    assert table.cell(0, 0).paragraphs[0].style.style_id == "DC_TableColumnHeader"
+    assert table.cell(1, 0).paragraphs[0].style.style_id == "DC_TableRowHeader"
+    assert table.cell(1, 1).paragraphs[0].style.style_id == "DC_TableBody"
+
+
+def test_renderer_applies_separate_first_row_and_first_column_table_roles(tmp_path) -> None:
+    output_path = tmp_path / "table-heading-roles.docx"
+    render_docx(
+        markdown="| 项目 | 数量 |\n| --- | --- |\n| 甲项 | 3 |\n| 乙项 | 5 |\n",
+        style_pack=create_style_pack(name="表格标题角色", format_id="docx"),
+        output_path=output_path,
+        work_dir=tmp_path / "work",
+    )
+
+    table = Document(output_path).tables[0]
+    assert table.cell(0, 0).paragraphs[0].style.style_id == "DC_TableColumnHeader"
+    assert table.cell(0, 1).paragraphs[0].style.style_id == "DC_TableColumnHeader"
+    assert table.cell(1, 0).paragraphs[0].style.style_id == "DC_TableRowHeader"
+    assert table.cell(2, 0).paragraphs[0].style.style_id == "DC_TableRowHeader"
+    assert table.cell(1, 1).paragraphs[0].style.style_id == "DC_TableBody"
+    assert table.cell(2, 1).paragraphs[0].style.style_id == "DC_TableBody"
+
+
+def test_renderer_recognizes_image_syntax_variants_and_applies_image_style(tmp_path) -> None:
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    _write_png(tmp_path / "wide.png", 1200, 600)
+    _write_png(tmp_path / "small.png", 80, 40)
+    markdown = """![inline](wide.png)
+
+![reference][wide-image]
+
+[wide-image]: wide.png
+
+<IMG src="wide.png" alt="HTML image" />
+
+![split line]
+(wide.png)
+
+![small image](small.png)
+
+图1 现场会议图片
+"""
+    base_pack = create_style_pack(name="图片样式", format_id="docx")
+    roles = dict(base_pack.roles)
+    roles["image"] = {
+        "role_type": "image",
+        "image": {
+            "alignment": "right",
+            "max_width_cm": 6,
+            "space_before_pt": 2.5,
+            "space_after_pt": 7.5,
+        },
+    }
+    output_path = tmp_path / "images.docx"
+    render_docx(
+        markdown=markdown,
+        style_pack=base_pack.model_copy(update={"roles": roles}),
+        output_path=output_path,
+        work_dir=work_dir,
+    )
+
+    document = Document(output_path)
+    image_paragraphs = [paragraph for paragraph in document.paragraphs if paragraph._p.xpath(".//w:drawing")]
+    shapes = [document.inline_shapes[index] for index in range(len(document.inline_shapes))]
+    widths_cm = [shape.width.cm for shape in shapes]
+    assert len(image_paragraphs) == 5
+    assert all(paragraph.style.style_id == "DC_Image" for paragraph in image_paragraphs)
+    assert all(width <= 6.01 for width in widths_cm)
+    assert widths_cm[-1] < 6
+    assert all(abs(shape.width.cm / shape.height.cm - 2) < 0.02 for shape in shapes[:-1])
+    assert document.styles["DC_Image"].paragraph_format.alignment == WD_ALIGN_PARAGRAPH.RIGHT
+    assert document.styles["DC_Image"].paragraph_format.space_before.pt == 2.5
+    assert document.styles["DC_Image"].paragraph_format.space_after.pt == 7.5
+    caption = next(paragraph for paragraph in document.paragraphs if paragraph.text.startswith("图1"))
+    assert caption.style.style_id == "DC_FigureCaption"
+    for paragraph in image_paragraphs:
+        outer_extent = paragraph._p.xpath(".//wp:extent")[0]
+        picture_extent = paragraph._p.xpath(".//a:xfrm/a:ext")[0]
+        assert outer_extent.get("cx") == picture_extent.get("cx")
+        assert outer_extent.get("cy") == picture_extent.get("cy")
+
+
+def test_renderer_defaults_image_width_to_body_width_without_upscaling(tmp_path) -> None:
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    _write_png(tmp_path / "wide.png", 1200, 600)
+    _write_png(tmp_path / "small.png", 80, 40)
+    output_path = tmp_path / "default-image-width.docx"
+    render_docx(
+        markdown="![wide](wide.png)\n\n![small](small.png)\n",
+        style_pack=create_style_pack(name="默认图片宽度", format_id="docx"),
+        output_path=output_path,
+        work_dir=work_dir,
+    )
+
+    document = Document(output_path)
+    shapes = [document.inline_shapes[index] for index in range(len(document.inline_shapes))]
+    assert len(shapes) == 2
+    section = document.sections[0]
+    body_width_cm = section.page_width.cm - section.left_margin.cm - section.right_margin.cm
+    assert abs(shapes[0].width.cm - body_width_cm) < 0.05
+    assert shapes[1].width.cm < shapes[0].width.cm
 
 
 def test_renderer_prefers_bundled_pandoc_when_available(tmp_path) -> None:
@@ -195,9 +316,11 @@ keywords:
         "DC_OrganizationDepartment",
         "DC_Author",
         "DC_Date",
-        "DC_AbstractContent",
-        "DC_KeywordsContent",
+        "DC_AbstractLabel",
+        "DC_KeywordsLabel",
     } <= style_ids
+    assert any(run.style and run.style.style_id == "DC_AbstractContent" for paragraph in document.paragraphs for run in paragraph.runs)
+    assert any(run.style and run.style.style_id == "DC_KeywordsContent" for paragraph in document.paragraphs for run in paragraph.runs)
     text = "\n".join(paragraph.text for paragraph in document.paragraphs)
     assert "摘要：在安全、制度和生态四个方面推进智慧交易。" in text
     assert "关键词：人工智能；大模型；公共资源交易；数智化" in text
@@ -240,6 +363,9 @@ keywords:
         "DC_Heading6",
         "DC_BodyParagraph",
         "DC_TableBody",
+        "DC_TableRowHeader",
+        "DC_TableColumnHeader",
+        "DC_Image",
         "DC_Point",
         "DC_ReferenceHeading",
         "DC_ReferenceEntry",
@@ -399,5 +525,20 @@ def test_renderer_writes_character_indent_attributes_to_ooxml(tmp_path) -> None:
     body_style = styles_xml[styles_xml.index('w:styleId="DC_BodyParagraph"') :]
     assert 'w:firstLineChars="200"' in body_style
     assert 'w:leftChars="100"' in body_style
-    assert 'w:firstLine="640"' not in body_style
-    assert 'w:left="320"' not in body_style
+    assert 'w:firstLine="640"' in body_style
+    assert 'w:left="320"' in body_style
+
+
+def _write_png(path, width: int, height: int) -> None:
+    def chunk(name: bytes, payload: bytes) -> bytes:
+        checksum = zlib.crc32(name + payload) & 0xFFFFFFFF
+        return struct.pack(">I", len(payload)) + name + payload + struct.pack(">I", checksum)
+
+    scanline = b"\x00" + b"\x37\x88\xb8" * width
+    image_data = zlib.compress(scanline * height)
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", image_data)
+        + chunk(b"IEND", b"")
+    )

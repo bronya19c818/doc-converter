@@ -6,10 +6,10 @@
 
 - A 方案双栏工作区：左侧可编辑 Markdown 工作副本，右侧内置 DOCX 预览。
 - 样式设置默认折叠为右下角悬浮按钮，需要时展开为固定底部面板，并按“样式角色 / 页面设置”分标签管理；“生成”和“下载”作为并列悬浮操作，不必打开设置面板；样式组合支持保存不可变新版本。
-- 内置预览按 A4 纸张显示分页页面，预览在浏览器内完成，不需要滚动到页面底部才能打开设置。
+- 内置预览按 A4 纸张显示分页页面，使用已生成的 DOCX 转 PDF 结果，不需要滚动到页面底部才能打开设置。
 - 结构建议是可执行的确定性动作：可将标题区内容应用为文档标题、副标题、摘要、关键词、作者、单位、部门或日期；应用会直接写入 Markdown Front Matter 并从标题区移除原行，不再阻塞生成。
 - 任务产物包括 DOCX、规范化 Markdown、审计报告和样式快照。
-- Pandoc 随 Windows 发布包分发；LibreOffice 不参与自动转换，Word 仅作为用户显式进行高保真复核时的可选工具。
+- Pandoc 随 Windows 发布包分发；Docker Compose 使用本地 LibreOffice 生成 PDF 预览，Word/WPS 仍可作为用户显式进行高保真复核的最终打开工具。
 
 ## Markdown 二次整理
 
@@ -54,7 +54,7 @@ keywords:
 
 `document-title`、`document-subtitle`、`organization-department`、`author`、`date`、`abstract-label`、`abstract-content`、`keywords-label`、`keywords-content`、`heading-1` 至 `heading-6`、`body-paragraph`、`body-table`、`point`、`table-caption`、`figure-caption`、`reference-heading`、`reference-entry`、`footer`、`page`。
 
-摘要和关键词各自只有两套可编辑角色：`摘要：` / `关键词：` 使用 `abstract-label` / `keywords-label`，内容及其段落布局分别使用 `abstract-content` / `keywords-content`。旧版样式包中的 `abstract` / `keywords` 段落角色会在读取时迁移到对应的内容角色，不会再生成第三套重复设置。Markdown 中的 `表1……`、`表一……` 等表题在表格前会映射为 `table-caption`；简单 HTML `<table>` 也会在转换前确定性转成可编辑 Markdown 表格。
+摘要和关键词各自只有两套可编辑角色：`abstract-label` / `keywords-label` 是段落角色，设置标签字形并控制标签与内容所在整行的对齐、缩进、行距和段距；`abstract-content` / `keywords-content` 是字符角色，只控制内容文字。旧版样式包的段落设置会迁移到对应的标签角色，标签和内容字体分别保留，不会生成重复角色。生成的表格默认具有 0.5 磅黑色单线外框及内部网格。Markdown 中的 `表1……`、`表一……` 等表题在表格前会映射为 `table-caption`；简单 HTML `<table>` 也会在转换前确定性转成可编辑 Markdown 表格。
 
 样式编辑器的样式角色再按“文前部分 / 正文部分 / 文后部分”分标签。文后部分以单独成行的“参考文献”“参考资料”或 `References`（可带中文/数字章节编号、括号编号、冒号或英文括注）为边界：检测到该标题后，标题使用 `reference-heading`，后续条目使用 `reference-entry`；没有参考文献标题的文档不自动产生文后正文样式。
 
@@ -123,7 +123,7 @@ docker compose -p doc-converter logs -f app
 docker compose -p doc-converter down
 ```
 
-默认宿主机端口为 `8765`，可通过 `DOC_CONVERTER_PORT=9876` 修改。容器内只使用 Pandoc + OOXML 转换，不安装或启动 LibreOffice。
+默认宿主机端口为 `8765`，可通过 `DOC_CONVERTER_PORT=9876` 修改。容器内使用 Pandoc + OOXML 转换，并用 LibreOffice 将已生成 DOCX 转为 PDF 预览；Windows 默认只读挂载 `C:\Windows\Fonts`，使预览使用与最终打开文档相同的中文字体。字体目录不在默认位置时，可通过 `DOC_CONVERTER_WINDOWS_FONTS` 指定。
 
 ## 验证
 

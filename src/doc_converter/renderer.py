@@ -63,13 +63,27 @@ def render_docx(
         f"--reference-doc={reference_path}",
         f"--output={output_path}",
     ]
-    completed = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", check=False)
+    completed = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=False,
+        cwd=work_dir.parent,
+    )
     if completed.returncode != 0 or not output_path.exists():
         detail = completed.stderr.strip() or completed.stdout.strip() or "Pandoc 未生成 DOCX。"
         raise RendererError(f"DOCX 渲染失败：{detail}")
 
     document = Document(str(output_path))
-    apply_postprocess(document, metadata)
+    image_role = style_pack.roles.get("image", {})
+    image_settings = image_role.get("image", {})
+    max_image_width = image_settings.get("max_width_cm") if isinstance(image_settings, dict) else None
+    apply_postprocess(
+        document,
+        metadata,
+        max_image_width_cm=max_image_width if isinstance(max_image_width, (int, float)) else None,
+    )
     document.save(str(output_path))
     return RenderResult(output_path=output_path, reference_docx_path=reference_path, pandoc_path=resolved_pandoc)
 

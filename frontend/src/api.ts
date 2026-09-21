@@ -27,6 +27,8 @@ export type Job = {
   output_name: string | null
   draft_updated_at: string | null
   source_hash: string
+  render_revision: number
+  preview_ready: boolean
 }
 
 const apiBase = import.meta.env.VITE_API_BASE ?? ''
@@ -91,14 +93,32 @@ export function normalizeAndRender(
   jobId: string,
   sourceMarkdown: string,
   confirmedRoles: Record<string, string>,
+  stylePack?: Pick<StylePack, 'id' | 'version'>,
 ): Promise<Job> {
   return request<Job>(`/api/jobs/${jobId}/normalize-and-render`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ source_markdown: sourceMarkdown, confirmed_roles: confirmedRoles }),
+    body: JSON.stringify({
+      source_markdown: sourceMarkdown,
+      confirmed_roles: confirmedRoles,
+      ...(stylePack ? { style_pack_id: stylePack.id, style_pack_version: stylePack.version } : {}),
+    }),
   })
 }
 
-export function artifactUrl(jobId: string, artifactName: string): string {
-  return `${apiBase}/api/jobs/${jobId}/artifacts/${encodeURIComponent(artifactName)}`
+export function artifactUrl(jobId: string, artifactName: string, revision?: number): string {
+  const url = `${apiBase}/api/jobs/${jobId}/artifacts/${encodeURIComponent(artifactName)}`
+  return revision ? `${url}?revision=${revision}` : url
+}
+
+export async function fetchArtifactText(jobId: string, artifactName: string, revision?: number): Promise<string> {
+  const response = await fetch(artifactUrl(jobId, artifactName, revision), { cache: 'no-store' })
+  if (!response.ok) {
+    throw new Error('无法读取规范化后的工作文档。')
+  }
+  return response.text()
+}
+
+export function previewUrl(jobId: string, revision: number): string {
+  return `${apiBase}/api/jobs/${jobId}/preview?revision=${revision}`
 }

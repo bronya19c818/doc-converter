@@ -20,18 +20,34 @@ _STANDARD_CODE_PATTERN = re.compile(
     r"\s*[\d.]+\s*[—\-–]\s*\d{4}$",
     re.IGNORECASE,
 )
-_CHAPTER_HEADING_PATTERN = re.compile(
-    rf"^(?:第\s*[{_CN_NUM}\d]+\s*[章篇]|[{_CN_NUM}]+\s*[、.．])"
-)
+_PART_HEADING_PATTERN = re.compile(rf"^第\s*[{_CN_NUM}\d]+\s*(?:篇|部分|部|单元)")
+_CHAPTER_HEADING_PATTERN = re.compile(rf"^第\s*[{_CN_NUM}\d]+\s*章")
+_SECTION_HEADING_PATTERN = re.compile(rf"^第\s*[{_CN_NUM}\d]+\s*节")
+_CHINESE_ENUM_HEADING_PATTERN = re.compile(rf"^[{_CN_NUM}]+\s*[、.．]")
 _CHINESE_BRACKET_HEADING_PATTERN = re.compile(
     rf"^[（(]\s*[{_CN_NUM}]+\s*[）)]"
 )
 _ARABIC_BRACKET_HEADING_PATTERN = re.compile(r"^[（(]\s*\d+\s*[）)]")
 _DECIMAL_HEADING_PATTERN = re.compile(r"^(\d+(?:\s*\.\s*\d+)+)(?=\s|[、.．)])")
 _ARABIC_HEADING_PATTERN = re.compile(r"^\d+(?:\s*[、.．)])(?=\s|\S)")
+_ARABIC_ROOT_HEADING_PATTERN = re.compile(r"^\d+(?=\s+\S)")
+_CIRCLED_HEADING_PATTERN = re.compile(r"^[①-⑳]")
 _LETTER_HEADING_PATTERN = re.compile(r"^[A-Za-zＡ-Ｚａ-ｚ][、.．)](?=\s|\S)")
 _STANDARD_ROOT_HEADING_PATTERN = re.compile(r"^\d+(?=\s+\S)")
 _BARE_DECIMAL_HEADING_PATTERN = re.compile(r"^(\d+(?:\s*\.\s*\d+)+)\s+(\S.*)$")
+_HEADING_MARKER_PATTERNS: dict[str, re.Pattern[str]] = {
+    "part": _PART_HEADING_PATTERN,
+    "chapter": _CHAPTER_HEADING_PATTERN,
+    "section": _SECTION_HEADING_PATTERN,
+    "cn-enum": _CHINESE_ENUM_HEADING_PATTERN,
+    "cn-bracket": _CHINESE_BRACKET_HEADING_PATTERN,
+    "arabic-bracket": _ARABIC_BRACKET_HEADING_PATTERN,
+    "decimal": _DECIMAL_HEADING_PATTERN,
+    "arabic": _ARABIC_HEADING_PATTERN,
+    "standard-root": _STANDARD_ROOT_HEADING_PATTERN,
+    "circled": _CIRCLED_HEADING_PATTERN,
+    "letter": _LETTER_HEADING_PATTERN,
+}
 _TITLE_AREA_LABEL_PATTERN = re.compile(
     r"^(?:摘要|关键词|作者(?:单位)?|单位|机构|组织|部门|日期|时间|发布时间)\s*[:：]"
 )
@@ -281,6 +297,8 @@ def _is_structural_start(value: str) -> bool:
     first = value.strip()
     if first.startswith(("#", "|", "```", "~~~")) or _TITLE_AREA_LABEL_PATTERN.match(first):
         return True
+    if _heading_kind(first, standard_document=False) is not None:
+        return True
     return bool(
         re.match(
             rf"^(?:第[{_CN_NUM}\d]+[条章节]|[{_CN_NUM}]+[、．.]|[（(][{_CN_NUM}\d]+[）)]|"
@@ -382,7 +400,7 @@ def _normalize_heading_lines(
     changes: list[dict[str, str | int]] = []
     in_fence = False
 
-    for line, source_line in zip(lines, line_map, strict=True):
+    for index, (line, source_line) in enumerate(zip(lines, line_map, strict=True)):
         stripped = line.strip()
         if stripped.startswith(("```", "~~~")):
             in_fence = not in_fence
@@ -395,13 +413,22 @@ def _normalize_heading_lines(
             continue
 
         match = _HEADING_PATTERN.match(line)
+        is_bare_heading = match is None
         if match is None:
-            output.append(line)
-            output_map.append(source_line)
-            continue
-
-        current_level = len(match.group(1))
-        title = match.group(2).strip()
+            title = stripped
+            if not _should_promote_bare_heading(
+                lines,
+                index,
+                active_levels,
+                standard_document=standard_document,
+            ):
+                output.append(line)
+                output_map.append(source_line)
+                continue
+            current_level = 0
+        else:
+            current_level = len(match.group(1))
+            title = match.group(2).strip()
         target_level = _heading_level_for_title(
             title,
             active_levels,
@@ -409,15 +436,15 @@ def _normalize_heading_lines(
             child_levels,
             standard_document=standard_document,
         )
-        if target_level != current_level:
+        if is_bare_heading or target_level != current_level:
             line = f"{'#' * target_level} {title}"
             changes.append(
                 {
                     "line": source_line,
-                    "from": f"heading-{current_level}",
+                    "from": "paragraph" if is_bare_heading else f"heading-{current_level}",
                     "to": "heading-level",
                     "level": target_level,
-                    "reason": "按中文/数字编号重建标题层级",
+                    "reason": "按编号形式和上下文重建标题层级",
                 }
             )
         output.append(line)
@@ -428,6 +455,106 @@ def _normalize_heading_lines(
         active_levels[target_level] = title
 
     return output, output_map, changes
+
+
+def _should_promote_bare_heading(
+    lines: list[str],
+    index: int,
+    active_levels: dict[int, str],
+    *,
+    standard_document: bool,
+) -> bool:
+    title = lines[index].strip()
+    kind = _heading_kind(title, standard_document=standard_document)
+    if kind is None or not _looks_like_bare_heading_text(title, kind):
+        return False
+    if _is_adjacent_ordered_list_item(lines, index, kind):
+        return False
+    if active_levels:
+        return True
+    return _has_immediate_numbered_child(lines, index, title, kind, standard_document)
+
+
+def _looks_like_bare_heading_text(title: str, kind: str) -> bool:
+    body = _heading_content_after_marker(title, kind)
+    if not body or len(body) > 80 or "|" in body or "$" in body:
+        return False
+    return re.search(r"[。；;！？!?：:]$", body) is None
+
+
+def _heading_content_after_marker(title: str, kind: str) -> str:
+    pattern = _HEADING_MARKER_PATTERNS.get(kind)
+    if pattern is None:
+        return ""
+    match = pattern.match(title)
+    if match is None and kind == "arabic":
+        match = _ARABIC_ROOT_HEADING_PATTERN.match(title)
+    if match is None and kind == "standard-root":
+        match = _STANDARD_ROOT_HEADING_PATTERN.match(title)
+    if match is None:
+        return ""
+    return title[match.end() :].strip().lstrip("、.．:：-— \t")
+
+
+def _is_adjacent_ordered_list_item(lines: list[str], index: int, kind: str) -> bool:
+    if kind != "arabic":
+        return False
+    current_match = re.match(r"^(\d+)\s*[、.．)]", lines[index].strip())
+    if current_match is None:
+        return False
+    current_number = int(current_match.group(1))
+    for neighbor_index in (index - 1, index + 1):
+        if not 0 <= neighbor_index < len(lines) or not lines[neighbor_index].strip():
+            continue
+        neighbor = lines[neighbor_index].strip()
+        neighbor_match = re.match(r"^(\d+)\s*[、.．)]", neighbor)
+        if neighbor_match is None:
+            continue
+        neighbor_kind = _heading_kind(neighbor, standard_document=False)
+        if neighbor_kind != "arabic":
+            continue
+        if abs(int(neighbor_match.group(1)) - current_number) == 1:
+            return True
+    return False
+
+
+def _has_immediate_numbered_child(
+    lines: list[str],
+    index: int,
+    title: str,
+    kind: str,
+    standard_document: bool,
+) -> bool:
+    child_index = index + 1
+    while child_index < len(lines) and not lines[child_index].strip():
+        child_index += 1
+    if child_index >= len(lines):
+        return False
+
+    child_line = lines[child_index].strip()
+    child_match = _HEADING_PATTERN.match(child_line)
+    child_title = child_match.group(2).strip() if child_match else child_line
+    child_kind = _heading_kind(child_title, standard_document=standard_document)
+    if child_kind is None or not _heading_content_after_marker(child_title, child_kind):
+        return False
+    if kind == "decimal" and child_kind == "decimal":
+        parent_decimal = _DECIMAL_HEADING_PATTERN.match(title)
+        child_decimal = _DECIMAL_HEADING_PATTERN.match(child_title)
+        return bool(
+            parent_decimal
+            and child_decimal
+            and child_decimal.group(1).count(".") > parent_decimal.group(1).count(".")
+        )
+    return child_kind in {
+        "standard-root": {"decimal"},
+        "part": {"chapter", "section", "cn-enum", "cn-bracket", "arabic", "decimal"},
+        "chapter": {"section", "cn-enum", "cn-bracket", "arabic", "decimal"},
+        "section": {"cn-enum", "cn-bracket", "arabic", "decimal"},
+        "cn-enum": {"cn-bracket", "arabic", "decimal"},
+        "cn-bracket": {"arabic", "arabic-bracket", "circled", "decimal"},
+        "arabic": {"arabic-bracket", "circled", "decimal"},
+        "arabic-bracket": {"circled"},
+    }.get(kind, {"chapter", "section", "cn-enum"})
 
 
 def _heading_level_for_title(
@@ -441,15 +568,63 @@ def _heading_level_for_title(
     kind = _heading_kind(title, standard_document=standard_document)
     if kind == "standard-root":
         return 2
-    if kind == "chapter":
+    if kind == "part":
         return 1
+    if kind == "chapter":
+        parent_level = _find_heading_parent_level(
+            active_levels, {"part"}, kind, standard_document
+        )
+        return min(6, parent_level + 1) if parent_level else 1
+    if kind == "section":
+        parent_level = _find_heading_parent_level(
+            active_levels, {"part", "chapter"}, kind, standard_document
+        )
+        return min(6, parent_level + 1) if parent_level else 2
+    if kind == "cn-enum":
+        parent_level = _find_heading_parent_level(
+            active_levels, {"part", "chapter", "section"}, kind, standard_document
+        )
+        return min(6, parent_level + 1) if parent_level else 1
     if kind == "cn-bracket":
-        return 2
+        parent_level = _find_heading_parent_level(
+            active_levels,
+            {None, "part", "chapter", "section", "cn-enum"},
+            kind,
+            standard_document,
+        )
+        return min(6, parent_level + 1) if parent_level else 2
     if kind == "decimal":
         decimal_match = _DECIMAL_HEADING_PATTERN.match(title)
         assert decimal_match is not None
-        return min(6, decimal_match.group(1).count(".") + 2)
-    if kind in {"arabic-bracket", "arabic", "letter"}:
+        return min(
+            6,
+            decimal_match.group(1).count(".") + 1 + int(standard_document),
+        )
+    if kind == "arabic":
+        parent_level = _find_heading_parent_level(
+            active_levels,
+            {None, "part", "chapter", "section", "cn-enum", "cn-bracket"},
+            kind,
+            standard_document,
+        )
+        return min(6, parent_level + 1) if parent_level else 1
+    if kind == "arabic-bracket":
+        parent_level = _find_heading_parent_level(
+            active_levels,
+            {None, "part", "chapter", "section", "cn-enum", "cn-bracket", "arabic"},
+            kind,
+            standard_document,
+        )
+        return min(6, parent_level + 1) if parent_level else 2
+    if kind == "circled":
+        parent_level = _find_heading_parent_level(
+            active_levels,
+            {"part", "chapter", "section", "cn-enum", "cn-bracket", "arabic", "arabic-bracket", "decimal", "letter"},
+            kind,
+            standard_document,
+        )
+        return min(6, parent_level + 1) if parent_level else 2
+    if kind == "letter":
         parent_level = max(
             (
                 level
@@ -468,19 +643,45 @@ def _heading_level_for_title(
     return current_level
 
 
+def _find_heading_parent_level(
+    active_levels: dict[int, str],
+    allowed_kinds: set[str | None],
+    child_kind: str,
+    standard_document: bool,
+) -> int:
+    return max(
+        (
+            level
+            for level, parent_title in active_levels.items()
+            if (parent_kind := _heading_kind(parent_title, standard_document=standard_document))
+            in allowed_kinds
+            and parent_kind != child_kind
+        ),
+        default=0,
+    )
+
+
 def _heading_kind(title: str, *, standard_document: bool) -> str | None:
     if standard_document and _STANDARD_ROOT_HEADING_PATTERN.match(title):
         return "standard-root"
+    if _PART_HEADING_PATTERN.match(title):
+        return "part"
     if _CHAPTER_HEADING_PATTERN.match(title):
         return "chapter"
+    if _SECTION_HEADING_PATTERN.match(title):
+        return "section"
+    if _CHINESE_ENUM_HEADING_PATTERN.match(title):
+        return "cn-enum"
     if _CHINESE_BRACKET_HEADING_PATTERN.match(title):
         return "cn-bracket"
     if _ARABIC_BRACKET_HEADING_PATTERN.match(title):
         return "arabic-bracket"
     if _DECIMAL_HEADING_PATTERN.match(title):
         return "decimal"
-    if _ARABIC_HEADING_PATTERN.match(title):
+    if _ARABIC_HEADING_PATTERN.match(title) or _ARABIC_ROOT_HEADING_PATTERN.match(title):
         return "arabic"
+    if _CIRCLED_HEADING_PATTERN.match(title):
+        return "circled"
     if _LETTER_HEADING_PATTERN.match(title):
         return "letter"
     return None

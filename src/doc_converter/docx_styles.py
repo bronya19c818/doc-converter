@@ -33,9 +33,12 @@ ROLE_TO_STYLE_ID = {
     "heading-6": "DC_Heading6",
     "body-paragraph": "DC_BodyParagraph",
     "body-table": "DC_TableBody",
+    "table-row-header": "DC_TableRowHeader",
+    "table-column-header": "DC_TableColumnHeader",
     "point": "DC_Point",
     "table-caption": "DC_TableCaption",
     "figure-caption": "DC_FigureCaption",
+    "image": "DC_Image",
     "reference-heading": "DC_ReferenceHeading",
     "reference-entry": "DC_ReferenceEntry",
     "footer": "DC_Footer",
@@ -111,6 +114,13 @@ def _apply_role(
 
     if style_type != WD_STYLE_TYPE.CHARACTER:
         paragraph_data = role_data.get("paragraph", {})
+        if role == "image":
+            image_data = role_data.get("image", {})
+            paragraph_data = {
+                "alignment": image_data.get("alignment", "center"),
+                "space_before_pt": image_data.get("space_before_pt", 0),
+                "space_after_pt": image_data.get("space_after_pt", 0),
+            }
         _apply_paragraph(style, paragraph_data, font_size_pt)
         if role and role.startswith("heading-"):
             _set_outline_level(style, role)
@@ -175,7 +185,6 @@ def _apply_indent_units(style: Any, data: dict[str, Any], font_size_pt: float) -
         if data.get(unit_key, "pt") == "character":
             characters = round(float(value) / max(font_size_pt, 0.01) * 100)
             indent.set(qn(chars_attr), str(characters))
-            indent.attrib.pop(qn(points_attr), None)
         else:
             indent.attrib.pop(qn(chars_attr), None)
 
