@@ -5,7 +5,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from doc_converter.docx_direct.model import Action, DocumentAnalysis, ElementAnalysis
+from doc_converter.docx_direct.model import (
+    Action,
+    DocumentAnalysis,
+    DocumentRegion,
+    ElementAnalysis,
+)
 
 SUPPORTED_ROLES = frozenset(
     {
@@ -133,7 +138,7 @@ def _assign_regions(elements: list[ElementAnalysis]) -> None:
         if _is_reference_boundary(text):
             postface_started = True
         if postface_started:
-            region = "postface"
+            region: DocumentRegion = "postface"
         elif body_started:
             region = "body"
         elif _is_heading_style(element.original_style_id, element.original_style_name) or _numbered_heading_level(text):

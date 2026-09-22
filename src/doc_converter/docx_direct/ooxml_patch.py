@@ -4,19 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from docx.oxml import parse_xml
-from lxml import etree
+from lxml import etree  # type: ignore[import-untyped]
 
 
-def parse_xml_payload(payload: bytes):
+def parse_xml_payload(payload: bytes) -> Any:
     """Parse an OOXML payload with the same namespace-aware parser as python-docx."""
 
     return parse_xml(payload)
 
 
-def serialize_xml_payload(root) -> bytes:
+def serialize_xml_payload(root: Any) -> bytes:
     """Serialize an OOXML tree without dropping its namespace declarations."""
 
     return etree.tostring(root, encoding="UTF-8", xml_declaration=True)

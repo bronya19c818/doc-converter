@@ -63,7 +63,7 @@ def analyze_docx(source_path: Path) -> DocumentAnalysis:
 
     for order, (paragraph, xml_path, table_context) in enumerate(_iter_paragraphs(body)):
         style_id = _paragraph_style_id(paragraph)
-        style_name = style_map.get(style_id, style_id)
+        style_name = style_map.get(style_id, style_id) if style_id is not None else None
         elements.append(
             _analyze_paragraph(
                 paragraph,
@@ -127,7 +127,7 @@ def _iter_table(
     table: Any,
     table_path: tuple[int, ...],
     parent_context: dict[str, Any] | None,
-) -> Iterator[tuple[Any, tuple[int, ...], dict[str, Any]]]:
+) -> Iterator[tuple[Any, tuple[int, ...], dict[str, Any] | None]]:
     parent_depth = int((parent_context or {}).get("table_depth", 0))
     table_depth = parent_depth + 1
     rows = [child for child in table if child.tag == TR_TAG]

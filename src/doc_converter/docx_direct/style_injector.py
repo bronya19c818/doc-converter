@@ -10,7 +10,7 @@ from typing import Any
 from docx import Document
 from docx.oxml import parse_xml
 from docx.oxml.ns import qn
-from lxml import etree
+from lxml import etree  # type: ignore[import-untyped]
 
 from doc_converter.docx_direct.ooxml_patch import read_zip_member, write_zip_copy
 from doc_converter.docx_styles import ROLE_TO_STYLE_ID, compile_styles
