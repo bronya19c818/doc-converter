@@ -35,6 +35,7 @@ _CIRCLED_HEADING_PATTERN = re.compile(r"^[①-⑳]")
 _LETTER_HEADING_PATTERN = re.compile(r"^[A-Za-zＡ-Ｚａ-ｚ][、.．)](?=\s|\S)")
 _STANDARD_ROOT_HEADING_PATTERN = re.compile(r"^\d+(?=\s+\S)")
 _BARE_DECIMAL_HEADING_PATTERN = re.compile(r"^(\d+(?:\s*\.\s*\d+)+)\s+(\S.*)$")
+_ESCAPED_ORDERED_MARKER_PATTERN = re.compile(r"^(\s*)(\d+)\s*\\([.．、)])(?=\s)")
 _HEADING_MARKER_PATTERNS: dict[str, re.Pattern[str]] = {
     "part": _PART_HEADING_PATTERN,
     "chapter": _CHAPTER_HEADING_PATTERN,
@@ -401,7 +402,8 @@ def _normalize_heading_lines(
     in_fence = False
 
     for index, (line, source_line) in enumerate(zip(lines, line_map, strict=True)):
-        stripped = line.strip()
+        candidate_line = _unescape_ordered_heading_marker(line)
+        stripped = candidate_line.strip()
         if stripped.startswith(("```", "~~~")):
             in_fence = not in_fence
             output.append(line)
@@ -457,6 +459,12 @@ def _normalize_heading_lines(
     return output, output_map, changes
 
 
+def _unescape_ordered_heading_marker(line: str) -> str:
+    """Undo Pandoc's list escaping when a short numbered paragraph is promoted."""
+
+    return _ESCAPED_ORDERED_MARKER_PATTERN.sub(r"\1\2\3", line)
+
+
 def _should_promote_bare_heading(
     lines: list[str],
     index: int,
@@ -464,10 +472,26 @@ def _should_promote_bare_heading(
     *,
     standard_document: bool,
 ) -> bool:
-    title = lines[index].strip()
+    original_line = lines[index].strip()
+    title = _unescape_ordered_heading_marker(lines[index]).strip()
     kind = _heading_kind(title, standard_document=standard_document)
     if kind is None or not _looks_like_bare_heading_text(title, kind):
         return False
+    # Pandoc escapes a plain DOCX paragraph that starts with ``1.`` as
+    # ``1\.``.  An unescaped marker is normally a Markdown ordered-list item;
+    # preserve a single item after an unnumbered heading while still allowing
+    # numbered outline levels to continue an existing numbered hierarchy.
+    if kind == "arabic" and not _ESCAPED_ORDERED_MARKER_PATTERN.match(original_line):
+        previous_index = index - 1
+        while previous_index >= 0 and not lines[previous_index].strip():
+            previous_index -= 1
+        if previous_index >= 0:
+            previous_match = _HEADING_PATTERN.match(lines[previous_index])
+            if previous_match is not None and _heading_kind(
+                previous_match.group(2).strip(),
+                standard_document=standard_document,
+            ) is None:
+                return False
     if _is_adjacent_ordered_list_item(lines, index, kind):
         return False
     if active_levels:
@@ -477,9 +501,9 @@ def _should_promote_bare_heading(
 
 def _looks_like_bare_heading_text(title: str, kind: str) -> bool:
     body = _heading_content_after_marker(title, kind)
-    if not body or len(body) > 80 or "|" in body or "$" in body:
+    if not body or len(body) > 35 or "|" in body or "$" in body:
         return False
-    return re.search(r"[。；;！？!?：:]$", body) is None
+    return re.search(r"[。；;，,、！？!?：:.]$", body) is None
 
 
 def _heading_content_after_marker(title: str, kind: str) -> str:
@@ -499,14 +523,17 @@ def _heading_content_after_marker(title: str, kind: str) -> str:
 def _is_adjacent_ordered_list_item(lines: list[str], index: int, kind: str) -> bool:
     if kind != "arabic":
         return False
-    current_match = re.match(r"^(\d+)\s*[、.．)]", lines[index].strip())
+    current_match = re.match(
+        r"^(\d+)\s*[、.．)]",
+        _unescape_ordered_heading_marker(lines[index]).strip(),
+    )
     if current_match is None:
         return False
     current_number = int(current_match.group(1))
     for neighbor_index in (index - 1, index + 1):
         if not 0 <= neighbor_index < len(lines) or not lines[neighbor_index].strip():
             continue
-        neighbor = lines[neighbor_index].strip()
+        neighbor = _unescape_ordered_heading_marker(lines[neighbor_index]).strip()
         neighbor_match = re.match(r"^(\d+)\s*[、.．)]", neighbor)
         if neighbor_match is None:
             continue

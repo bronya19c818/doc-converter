@@ -20,6 +20,7 @@ import {
   createJob,
   createStylePack,
   fetchArtifactText,
+  getJobDraft,
   Job,
   listStylePacks,
   normalizeAndRender,
@@ -43,6 +44,11 @@ const SUGGESTION_ROLE_LABELS: Record<string, string> = {
   date: '日期',
   abstract: '摘要',
   keywords: '关键词',
+}
+
+function isMarkdownFile(filename: string): boolean {
+  const normalizedName = filename.toLowerCase()
+  return normalizedName.endsWith('.md') || normalizedName.endsWith('.markdown')
 }
 
 export function App() {
@@ -112,9 +118,14 @@ export function App() {
     setError(null)
     if (file) {
       void preloadDocxPreview().catch(() => undefined)
-      const text = await file.text()
-      setSourceMarkdown(text)
-      setOriginalMarkdown(text)
+      if (isMarkdownFile(file.name)) {
+        const text = await file.text()
+        setSourceMarkdown(text)
+        setOriginalMarkdown(text)
+      } else {
+        setSourceMarkdown('')
+        setOriginalMarkdown('')
+      }
     } else {
       setSourceMarkdown('')
       setOriginalMarkdown('')
@@ -128,7 +139,12 @@ export function App() {
     setDownloadsOpen(false)
     try {
       const created = await createJob(sourceFile, selectedPack)
-      const prepared = await persistHighConfidenceSuggestions(created, sourceMarkdown)
+      const importedDraft = isMarkdownFile(sourceFile.name) ? null : await getJobDraft(created.id)
+      const importedMarkdown = importedDraft?.source_markdown ?? sourceMarkdown
+      const jobWithImportWarnings = importedDraft
+        ? { ...created, import_warnings: importedDraft.warnings }
+        : created
+      const prepared = await persistHighConfidenceSuggestions(jobWithImportWarnings, importedMarkdown)
       setJob(prepared.job)
       setSourceMarkdown(prepared.markdown)
       setOriginalMarkdown(prepared.markdown)
@@ -316,19 +332,19 @@ export function App() {
           </span>
           <div>
             <h1>Doc Converter</h1>
-            <p>Markdown 转 DOCX</p>
+            <p>文档格式转换</p>
           </div>
         </div>
         <p className="brand-tagline">让内容自由流转</p>
       </header>
 
-      <section className="workspace" aria-label="Markdown 转 DOCX 工作区">
-        <section className="markdown-panel" aria-label="Markdown 工作区">
+      <section className="workspace" aria-label="文档格式转换工作区">
+        <section className="markdown-panel" aria-label="源文件工作区">
           <div className="panel-title">
             <span className="section-number">01</span>
             <div>
               <h2>源文件工作区</h2>
-              <p>选择 Markdown 文件或直接编辑内容。</p>
+              <p>选择 Markdown、DOCX 或 DOC 文件。</p>
             </div>
           </div>
           <div className="file-picker">
@@ -338,8 +354,8 @@ export function App() {
               选择文件
             </label>
             <input
-              accept=".md,.markdown,text/markdown"
-              aria-label="选择 Markdown 文件"
+              accept=".md,.markdown,.docx,.doc,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword"
+              aria-label="选择文件"
               className="file-input-hidden"
               id="source-file"
               onChange={handleFileChange}
@@ -358,13 +374,18 @@ export function App() {
             <span className="editor-support"><IconInfoCircle aria-hidden="true" size={17} />Markdown</span>
           </div>
           <textarea
-            aria-label="Markdown 工作副本"
+            aria-label="内容工作区"
             className="markdown-editor"
             id="markdown-draft"
             onChange={(event) => setSourceMarkdown(event.target.value)}
-            placeholder="选择 Markdown 文件后，可在这里编辑工作副本。"
+            placeholder="选择文件后，可在这里编辑 Markdown 内容工作副本。"
             value={sourceMarkdown}
           />
+          {job?.import_warnings?.length ? (
+            <p className="field-help" role="status">
+              导入提示：{job.import_warnings.join('；')}
+            </p>
+          ) : null}
           <div className="draft-status" role="status">
             <IconCircleCheck aria-hidden="true" size={18} />
             {markdownChanged ? '有未保存修改' : '工作区已保存'}

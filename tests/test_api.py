@@ -1,10 +1,14 @@
+import struct
+import zlib
 from io import BytesIO
 from pathlib import Path
 
 from docx import Document
+from docx.shared import Inches
 from fastapi.testclient import TestClient
 
 import doc_converter.api as api_module
+import doc_converter.importers.doc as doc_importer_module
 from doc_converter.api import _suggest_semantic_roles, create_app
 
 
@@ -29,6 +33,16 @@ def test_local_api_creates_editable_job_saves_draft_and_renders_named_job(tmp_pa
     assert job["suggestions"] == [
         {"line": 1, "role": "document-title", "score": 0.9, "reason": "首个无编号 H1"}
     ]
+    job_directory = tmp_path / "jobs" / job["id"]
+    assert (job_directory / "source" / "original.md").read_text(encoding="utf-8") == (
+        "# 实施方案\n\n# 一、建设背景\n\n正文。"
+    )
+    assert (job_directory / "source" / "imported.md").read_text(encoding="utf-8") == (
+        "# 实施方案\n\n# 一、建设背景\n\n正文。"
+    )
+    assert (job_directory / "work" / "source.md").read_text(encoding="utf-8") == (
+        "# 实施方案\n\n# 一、建设背景\n\n正文。"
+    )
 
     draft = client.put(
         f"/api/jobs/{job['id']}/draft",
@@ -50,6 +64,170 @@ def test_local_api_creates_editable_job_saves_draft_and_renders_named_job(tmp_pa
     assert docx.status_code == 200
     assert docx.headers["content-type"].startswith(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+
+
+def test_api_imports_docx_media_and_returns_backend_working_copy(tmp_path, monkeypatch) -> None:
+    client = TestClient(create_app(data_root=tmp_path))
+    pack = client.post("/api/style-packs", json={"name": "导入测试", "format_id": "docx"}).json()
+    source_bytes = _make_docx_bytes("中文标题", image_color=(240, 10, 10))
+    monkeypatch.setattr(api_module, "_convert_docx_to_pdf", lambda _source, _output: False)
+
+    created = client.post(
+        "/api/jobs",
+        data={"style_pack_id": pack["id"], "style_pack_version": str(pack["version"])},
+        files={"source": ("中文材料.docx", source_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+
+    assert created.status_code == 201, created.text
+    job = created.json()
+    assert job["source_format"] == "docx"
+    assert job["source_original_name"] == "中文材料.docx"
+    assert job["import_warnings"] == []
+    job_directory = tmp_path / "jobs" / job["id"]
+    assert (job_directory / "source" / "original.docx").read_bytes() == source_bytes
+
+    draft = client.get(f"/api/jobs/{job['id']}/draft")
+
+    assert draft.status_code == 200
+    payload = draft.json()
+    assert payload["source_format"] == "docx"
+    assert payload["warnings"] == []
+    assert "# 中文标题" in payload["source_markdown"]
+    assert "正文含中文。" in payload["source_markdown"]
+    assert "甲项目" in payload["source_markdown"]
+    assert "source/assets/" in payload["source_markdown"]
+    imported_markdown = (job_directory / "source" / "imported.md").read_text(encoding="utf-8")
+    assert imported_markdown == payload["source_markdown"]
+    assert len(list((job_directory / "source" / "assets").iterdir())) == 1
+
+    rendered = client.post(
+        f"/api/jobs/{job['id']}/normalize-and-render",
+        json={"source_markdown": payload["source_markdown"], "confirmed_roles": {}},
+    )
+
+    assert rendered.status_code == 200, rendered.text
+    output = client.get(f"/api/jobs/{job['id']}/artifacts/{rendered.json()['output_name']}")
+    document = Document(BytesIO(output.content))
+    assert len(document.inline_shapes) == 1
+    assert "甲项目" in "\n".join(cell.text for row in document.tables[0].rows for cell in row.cells)
+    assert (job_directory / "source" / "original.docx").read_bytes() == source_bytes
+
+
+def test_api_rejects_invalid_docx_upload_with_422(tmp_path) -> None:
+    client = TestClient(create_app(data_root=tmp_path))
+    pack = client.post("/api/style-packs", json={"name": "坏 DOCX", "format_id": "docx"}).json()
+
+    response = client.post(
+        "/api/jobs",
+        data={"style_pack_id": pack["id"], "style_pack_version": str(pack["version"])},
+        files={"source": ("坏文件.docx", b"not a zip", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+
+    assert response.status_code == 422
+    assert "有效的 Office Open XML" in response.json()["detail"]
+
+
+def test_docx_assets_are_isolated_between_jobs(tmp_path) -> None:
+    client = TestClient(create_app(data_root=tmp_path))
+    pack = client.post("/api/style-packs", json={"name": "隔离测试", "format_id": "docx"}).json()
+
+    jobs = []
+    for title, color in (("红色图片", (240, 10, 10)), ("蓝色图片", (10, 10, 240))):
+        response = client.post(
+            "/api/jobs",
+            data={"style_pack_id": pack["id"], "style_pack_version": str(pack["version"])},
+            files={"source": (f"{title}.docx", _make_docx_bytes(title, image_color=color), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        )
+        assert response.status_code == 201, response.text
+        jobs.append(response.json())
+
+    asset_dirs = [tmp_path / "jobs" / job["id"] / "source" / "assets" for job in jobs]
+    first_asset = next(path for path in asset_dirs[0].rglob("*") if path.is_file())
+    second_asset = next(path for path in asset_dirs[1].rglob("*") if path.is_file())
+    assert asset_dirs[0] != asset_dirs[1]
+    assert first_asset.read_bytes() != second_asset.read_bytes()
+
+
+def test_api_converts_doc_to_intermediate_docx_without_changing_upload(tmp_path, monkeypatch) -> None:
+    original_bytes = b"legacy binary DOC upload"
+    converted_docx = _make_docx_bytes("旧版 Word 中文标题", image_color=(20, 120, 80))
+
+    def fake_convert(source_path: Path, *, output_path: Path) -> Path:
+        assert source_path.read_bytes() == original_bytes
+        output_path.write_bytes(converted_docx)
+        return output_path
+
+    monkeypatch.setattr(doc_importer_module, "convert_doc_to_docx", fake_convert)
+    client = TestClient(create_app(data_root=tmp_path / "app-data"))
+    pack = client.post("/api/style-packs", json={"name": "旧版格式测试", "format_id": "docx"}).json()
+
+    created = client.post(
+        "/api/jobs",
+        data={"style_pack_id": pack["id"], "style_pack_version": str(pack["version"])},
+        files={"source": ("旧版材料.doc", original_bytes, "application/msword")},
+    )
+
+    assert created.status_code == 201, created.text
+    job = created.json()
+    assert job["source_format"] == "doc"
+    job_directory = tmp_path / "app-data" / "jobs" / job["id"]
+    assert (job_directory / "source" / "original.doc").read_bytes() == original_bytes
+    assert (job_directory / "source" / "intermediate.docx").is_file()
+    draft = client.get(f"/api/jobs/{job['id']}/draft").json()
+    assert "旧版 Word 中文标题" in draft["source_markdown"]
+
+
+def test_doc_import_reports_when_configured_libreoffice_path_is_missing(tmp_path, monkeypatch) -> None:
+    client = TestClient(create_app(data_root=tmp_path))
+    pack = client.post("/api/style-packs", json={"name": "DOC 错误提示", "format_id": "docx"}).json()
+    missing_path = tmp_path / "missing" / "soffice.exe"
+    monkeypatch.setenv("DOC_CONVERTER_LIBREOFFICE", str(missing_path))
+
+    response = client.post(
+        "/api/jobs",
+        data={"style_pack_id": pack["id"], "style_pack_version": str(pack["version"])},
+        files={"source": ("材料.doc", b"legacy Word bytes", "application/msword")},
+    )
+
+    assert response.status_code == 422
+    assert "DOC_CONVERTER_LIBREOFFICE" in response.json()["detail"]
+    assert "LibreOffice" in response.json()["detail"]
+
+
+def _make_docx_bytes(title: str, *, image_color: tuple[int, int, int]) -> bytes:
+    document = Document()
+    document.add_heading(title, level=1)
+    document.add_paragraph("正文含中文。")
+    table = document.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "项目"
+    table.cell(0, 1).text = "数量"
+    table.cell(1, 0).text = "甲项目"
+    table.cell(1, 1).text = "三项"
+    image_buffer = BytesIO(_solid_png(image_color))
+    image_buffer.seek(0)
+    document.add_picture(image_buffer, width=Inches(0.25))
+    output = BytesIO()
+    document.save(output)
+    return output.getvalue()
+
+
+def _solid_png(color: tuple[int, int, int]) -> bytes:
+    def chunk(name: bytes, payload: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(payload))
+            + name
+            + payload
+            + struct.pack(">I", zlib.crc32(name + payload) & 0xFFFFFFFF)
+        )
+
+    row = b"\x00" + bytes(color) * 8
+    header = struct.pack(">IIBBBBB", 8, 8, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(row * 8))
+        + chunk(b"IEND", b"")
     )
 
 

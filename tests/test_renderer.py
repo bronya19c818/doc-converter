@@ -67,6 +67,173 @@ def test_renderer_adds_half_point_grid_borders_to_tables(tmp_path) -> None:
         assert edge.get(qn("w:color")) == "000000"
 
 
+def test_renderer_preserves_native_bullet_list_numbering(tmp_path) -> None:
+    output_path = tmp_path / "bullet-list.docx"
+
+    render_docx(
+        markdown="- CASE-LIST-B1 一级项目符号 A\n- CASE-LIST-B2 一级项目符号 B\n",
+        style_pack=create_style_pack(name="项目符号测试", format_id="docx"),
+        output_path=output_path,
+        work_dir=tmp_path / "work",
+    )
+
+    document = Document(output_path)
+    paragraphs = [paragraph for paragraph in document.paragraphs if paragraph.text]
+    assert [paragraph.text for paragraph in paragraphs] == [
+        "CASE-LIST-B1 一级项目符号 A",
+        "CASE-LIST-B2 一级项目符号 B",
+    ]
+    assert all(paragraph._p.pPr is not None and paragraph._p.pPr.numPr is not None for paragraph in paragraphs)
+
+
+def test_renderer_preserves_pandoc_native_subscript_and_superscript(tmp_path) -> None:
+    output_path = tmp_path / "subscript-superscript.docx"
+
+    render_docx(
+        markdown="CASE-RUN-ANCHOR H~2~O；x^2^\n",
+        style_pack=create_style_pack(name="上下角标测试", format_id="docx"),
+        output_path=output_path,
+        work_dir=tmp_path / "work",
+    )
+
+    with zipfile.ZipFile(output_path) as archive:
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+    assert "CASE-RUN-ANCHOR" in document_xml
+    assert 'w:vertAlign w:val="subscript"' in document_xml
+    assert 'w:vertAlign w:val="superscript"' in document_xml
+
+
+def test_renderer_preserves_tabs_and_internal_page_break_extension(tmp_path) -> None:
+    output_path = tmp_path / "tabs-page-break.docx"
+
+    render_docx(
+        markdown=(
+            "CASE-SPACE-001 A&#9;B\n\n"
+            "Before page break\n\n"
+            "<!-- doc-converter:page-break -->\n\n"
+            "After page break\n"
+        ),
+        style_pack=create_style_pack(name="分页与制表符测试", format_id="docx"),
+        output_path=output_path,
+        work_dir=tmp_path / "work",
+    )
+
+    document = Document(output_path)
+    assert any("A\tB" in paragraph.text for paragraph in document.paragraphs)
+    with zipfile.ZipFile(output_path) as archive:
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+    assert 'w:br w:type="page"' in document_xml
+
+
+def test_renderer_keeps_multiline_simple_table_cell_with_native_entity(tmp_path) -> None:
+    output_path = tmp_path / "multiline-table.docx"
+
+    render_docx(
+        markdown="| A | B |\n| --- | --- |\n| T3 | 第一行&#10;第二行&#10;第三行 |\n",
+        style_pack=create_style_pack(name="多行表格测试", format_id="docx"),
+        output_path=output_path,
+        work_dir=tmp_path / "work",
+    )
+
+    cell_text = Document(output_path).tables[0].cell(1, 1).text
+    assert "第一行" in cell_text
+    assert "第二行" in cell_text
+    assert "第三行" in cell_text
+    assert "\n" in cell_text
+
+
+def test_renderer_preserves_complex_table_internal_extension(tmp_path) -> None:
+    output_path = tmp_path / "complex-table.docx"
+    markdown = """表2 复杂表格
+
+<table>
+<tr><th>A</th><th>B</th><th>C</th><th>D</th></tr>
+<tr><td colspan="2">CASE-TBL-MERGE-H 水平合并 A+B</td><td>C1</td><td>D1</td></tr>
+<tr><td rowspan="2">CASE-TBL-MERGE-V 纵向合并两行</td><td>B2</td><td>C2</td><td>D2</td></tr>
+<tr><td>B3</td><td>C3</td><td>D3</td></tr>
+<tr><td>A4</td><td>CASE-TBL-NESTED 嵌套表：<table><tr><td>N1</td><td>N2</td></tr><tr><td>N3</td><td>N4</td></tr></table></td><td>C4</td><td>CASE-TBL-BLANK 空单元格</td></tr>
+</table>
+"""
+
+    render_docx(
+        markdown=markdown,
+        style_pack=create_style_pack(name="复杂表格测试", format_id="docx"),
+        output_path=output_path,
+        work_dir=tmp_path / "work",
+    )
+
+    document = Document(output_path)
+    assert len(document.tables) == 1
+    table = document.tables[0]
+    assert table.cell(1, 0).text.startswith("CASE-TBL-MERGE-H")
+    assert table.cell(1, 0)._tc.xpath("./w:tcPr/w:gridSpan")
+    assert table.cell(2, 0)._tc.xpath("./w:tcPr/w:vMerge")
+    assert any("CASE-TBL-BLANK" in cell.text for row in table.rows for cell in row.cells)
+    nested_tables = [nested for row in table.rows for cell in row.cells for nested in cell.tables]
+    assert len(nested_tables) == 1
+    assert nested_tables[0].cell(0, 0).text == "N1"
+    assert nested_tables[0].cell(1, 1).text == "N4"
+
+
+def test_renderer_preserves_complex_table_inline_content_and_nested_page_break(tmp_path) -> None:
+    image_path = tmp_path / "cell.png"
+    _write_png(image_path, 40, 20)
+    output_path = tmp_path / "complex-table-inline.docx"
+    markdown = f"""<table>
+<tr><td rowspan="2"><strong>粗体</strong> <a href="https://example.com">OpenAI</a> <img src="{image_path.name}" alt="单元格图">A<!-- doc-converter:page-break -->B</td><td>右侧</td></tr>
+<tr><td>第二行</td></tr>
+</table>
+"""
+
+    render_docx(
+        markdown=markdown,
+        style_pack=create_style_pack(name="复杂表格内联内容", format_id="docx"),
+        output_path=output_path,
+        work_dir=tmp_path / "work",
+    )
+
+    document = Document(output_path)
+    cell = document.tables[0].cell(0, 0)
+    assert "粗体" in cell.text
+    assert "OpenAI" in cell.text
+    assert "A" in cell.text and "B" in cell.text
+    assert cell._tc.xpath(".//w:drawing")
+    assert any(run.bold for paragraph in cell.paragraphs for run in paragraph.runs if "粗体" in run.text)
+    with zipfile.ZipFile(output_path) as archive:
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+        relationships_xml = archive.read("word/_rels/document.xml.rels").decode("utf-8")
+    assert 'w:br w:type="page"' in document_xml
+    assert "https://example.com" in relationships_xml
+
+
+def test_renderer_restores_internal_endnote_as_endnote_part(tmp_path) -> None:
+    output_path = tmp_path / "endnote.docx"
+    markdown = (
+        "脚注文本[^1]，尾注文本[^doc-converter-endnote-1]。\n\n"
+        "[^1]: CASE-FN-TEXT-001\n"
+        "[^doc-converter-endnote-1]: CASE-EN-TEXT-001\n"
+    )
+
+    render_docx(
+        markdown=markdown,
+        style_pack=create_style_pack(name="尾注测试", format_id="docx"),
+        output_path=output_path,
+        work_dir=tmp_path / "work",
+    )
+
+    with zipfile.ZipFile(output_path) as archive:
+        assert "word/endnotes.xml" in archive.namelist()
+        endnotes_xml = archive.read("word/endnotes.xml").decode("utf-8")
+        footnotes_xml = archive.read("word/footnotes.xml").decode("utf-8")
+        document_xml = archive.read("word/document.xml").decode("utf-8")
+    assert "CASE-EN-TEXT-001" in endnotes_xml
+    assert "CASE-EN-TEXT-001" not in footnotes_xml
+    assert "w:endnoteReference" in document_xml
+    assert "w:footnoteRef" not in endnotes_xml
+    assert "FootnoteReference" not in endnotes_xml
+    assert "FootnoteText" not in endnotes_xml
+
+
 def test_renderer_extracts_title_area_blocks_from_raw_markdown(tmp_path) -> None:
     markdown = """---
 title: 原始 Markdown 标题

@@ -22,6 +22,10 @@ _HTML_IMAGE_TAG_PATTERN = re.compile(
     r"<img\b(?:[^\"'>]|\"[^\"]*\"|'[^']*')*>",
     re.IGNORECASE | re.DOTALL,
 )
+_HTML_SUB_SUP_PATTERN = re.compile(
+    r"<(?P<tag>sub|sup)\b[^>]*>(?P<content>.*?)</(?P=tag)>",
+    re.IGNORECASE | re.DOTALL,
+)
 _LABEL_PATTERN = re.compile(r"^\s*(摘要|关键词)\s*[:：]\s*(.*)$")
 _TITLE_AREA_LABEL_PATTERN = re.compile(
     r"^\s*(作者单位|作者|单位|机构|组织|部门|所属部门|日期|时间|发布时间)\s*[:：]\s*(.*)$"
@@ -436,12 +440,12 @@ class _HtmlTableParser(HTMLParser):
         elif tag in {"td", "th"} and self._row is not None:
             self._cell = []
         elif tag == "br" and self._cell is not None:
-            self._cell.append(" ")
+            self._cell.append("\ue000")
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
         if tag in {"td", "th"} and self._row is not None and self._cell is not None:
-            self._row.append("".join(self._cell).strip())
+            self._row.append(_normalize_html_table_cell("".join(self._cell)))
             self._cell = None
         elif tag == "tr" and self._row is not None:
             if self._row:
@@ -469,9 +473,12 @@ def _normalize_html_tables(markdown: str) -> str:
             in_fence = not in_fence
         if not in_fence and "<table" in line.lower():
             block = [line]
-            while "</table>" not in "\n".join(block).lower() and index + 1 < len(lines):
+            depth = line.lower().count("<table") - line.lower().count("</table>")
+            while depth > 0 and index + 1 < len(lines):
                 index += 1
                 block.append(lines[index])
+                depth += lines[index].lower().count("<table")
+                depth -= lines[index].lower().count("</table>")
             output.extend(_replace_html_table_block("\n".join(block)).splitlines())
         else:
             output.append(line)
@@ -481,16 +488,27 @@ def _normalize_html_tables(markdown: str) -> str:
 
 def _replace_html_table_block(block: str) -> str:
     parser = _HtmlTableParser()
+    if block.lower().count("<table") > 1 or re.search(r"\b(?:rowspan|colspan)\s*=", block, re.IGNORECASE):
+        return block
     parser.feed(block)
     parser.close()
     if not parser.rows:
         return block
     width = max(len(row) for row in parser.rows)
     rows = [row + [""] * (width - len(row)) for row in parser.rows]
-    escaped = [[cell.replace("|", "\\|") for cell in row] for row in rows]
+    escaped = [
+        [cell.replace("|", "\\|").replace("\n", "&#10;") for cell in row]
+        for row in rows
+    ]
     lines = ["| " + " | ".join(row) + " |" for row in escaped]
     lines.insert(1, "| " + " | ".join("---" for _ in range(width)) + " |")
     return "\n".join(lines)
+
+
+def _normalize_html_table_cell(value: str) -> str:
+    parts = value.split("\ue000")
+    normalized = [re.sub(r"\s+", " ", part).strip() for part in parts]
+    return "\n".join(part for part in normalized if part)
 
 
 def _integrity_inventory(source: str, normalized: str) -> dict[str, Any]:
@@ -602,6 +620,56 @@ def _normalize_html_images(markdown: str) -> str:
                 transformed = transformed.replace(f"\x00doc-converter-inline-code-{index}\x00", code_span)
             output.append(transformed)
             ordinary_lines.clear()
+
+    for line in markdown.splitlines(keepends=True):
+        fence_match = re.match(r"^\s*(`{3,}|~{3,})", line)
+        if fence_match:
+            flush_ordinary_lines()
+            marker = fence_match.group(1)
+            if fence is None:
+                fence = (marker[0], len(marker))
+            elif marker[0] == fence[0] and len(marker) >= fence[1]:
+                fence = None
+            output.append(line)
+        elif fence is None:
+            ordinary_lines.append(line)
+        else:
+            output.append(line)
+    flush_ordinary_lines()
+    return "".join(output)
+
+
+def _normalize_html_sub_sup(markdown: str) -> str:
+    """Map DOCX reader HTML sub/sup tags to Pandoc's native extensions."""
+
+    def replace(match: re.Match[str]) -> str:
+        content = match.group("content")
+        marker = "~" if match.group("tag").casefold() == "sub" else "^"
+        return f"{marker}{content}{marker}"
+
+    output: list[str] = []
+    ordinary_lines: list[str] = []
+    fence: tuple[str, int] | None = None
+
+    def flush_ordinary_lines() -> None:
+        if not ordinary_lines:
+            return
+        block = "".join(ordinary_lines)
+        code_spans: list[str] = []
+
+        def hold_code_span(match: re.Match[str]) -> str:
+            code_spans.append(match.group(0))
+            return f"\x00doc-converter-sub-sup-code-{len(code_spans) - 1}\x00"
+
+        transformed = _INLINE_CODE_PATTERN.sub(hold_code_span, block)
+        transformed = _HTML_SUB_SUP_PATTERN.sub(replace, transformed)
+        for index, code_span in enumerate(code_spans):
+            transformed = transformed.replace(
+                f"\x00doc-converter-sub-sup-code-{index}\x00",
+                code_span,
+            )
+        output.append(transformed)
+        ordinary_lines.clear()
 
     for line in markdown.splitlines(keepends=True):
         fence_match = re.match(r"^\s*(`{3,}|~{3,})", line)

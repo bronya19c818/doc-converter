@@ -30,7 +30,7 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: 'Doc Converter' })).toBeInTheDocument()
     expect(screen.queryByText('本地转换，不调用 AI，也不上传文档。')).not.toBeInTheDocument()
     expect(screen.queryByText('仅本机运行')).not.toBeInTheDocument()
-    expect(await screen.findByLabelText('选择 Markdown 文件')).toBeInTheDocument()
+    expect(await screen.findByLabelText('选择文件')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '转换结果预览' })).toBeInTheDocument()
     expect(screen.queryByText('预览按独立 A4 纸张显示，在浏览器内完成；不依赖 LibreOffice 自动转换。')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '生成' })).toBeDisabled()
@@ -41,9 +41,50 @@ describe('App', () => {
     render(<App />)
 
     const file = new File(['# 项目方案\n'], 'demo.md', { type: 'text/markdown' })
-    fireEvent.change(await screen.findByLabelText('选择 Markdown 文件'), { target: { files: [file] } })
+    fireEvent.change(await screen.findByLabelText('选择文件'), { target: { files: [file] } })
 
     await waitFor(() => expect(preloadDocxPreview).toHaveBeenCalledTimes(1))
+  })
+
+  it.each([
+    { format: 'DOCX', filename: '合同.docx', sourceFormat: 'docx' },
+    { format: 'DOC', filename: '合同.doc', sourceFormat: 'doc' },
+  ])('loads $format content from the backend without reading the binary file as text', async ({ filename, sourceFormat }) => {
+    const pack = { id: 'formal-report', name: '正式报告', format_id: 'docx', version: 1, roles: {} }
+    const readyJob = {
+      id: 'job-1', status: 'ready', source_name: filename, source_original_name: filename,
+      source_format: sourceFormat, import_warnings: [], style_pack_id: pack.id, style_pack_version: 1,
+      suggestions: [], artifacts: [], error: null, output_name: null, draft_updated_at: null,
+      source_hash: 'source', render_revision: 0, preview_ready: false,
+    }
+    const importedMarkdown = '# 合同标题\n\n从 DOCX 导入的正文。\n'
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => [pack] })
+      .mockResolvedValueOnce({ ok: true, json: async () => readyJob })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          source_format: sourceFormat,
+          source_markdown: importedMarkdown,
+          warnings: ['Pandoc 导入提示。'],
+        }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<App />)
+
+    const file = new File([new Uint8Array([0, 1, 2, 3])], filename)
+    const readText = vi.fn().mockResolvedValue('not the imported Markdown')
+    Object.defineProperty(file, 'text', { value: readText })
+    fireEvent.change(await screen.findByLabelText('选择文件'), { target: { files: [file] } })
+
+    expect(readText).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('内容工作区')).toHaveValue('')
+    fireEvent.click(await screen.findByRole('button', { name: '建立本地工作副本' }))
+
+    await waitFor(() => expect(screen.getByLabelText('内容工作区')).toHaveValue(importedMarkdown))
+    expect(screen.getByText('导入提示：Pandoc 导入提示。')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(String(fetchMock.mock.calls[2][0])).toBe('/api/jobs/job-1/draft')
   })
 
   it('auto-applies only suggestions with confidence above 90 percent', () => {
@@ -82,10 +123,10 @@ title: 项目方案
     render(<App />)
 
     const file = new File(['---\ntitle: 项目方案\n---\n\n摘要：这是摘要。\n'], 'demo.md', { type: 'text/markdown' })
-    fireEvent.change(await screen.findByLabelText('选择 Markdown 文件'), { target: { files: [file] } })
+    fireEvent.change(await screen.findByLabelText('选择文件'), { target: { files: [file] } })
     fireEvent.click(await screen.findByRole('button', { name: '建立本地工作副本' }))
 
-    const editor = await screen.findByLabelText('Markdown 工作副本')
+    const editor = await screen.findByLabelText('内容工作区')
     await waitFor(() => expect(editor).toHaveValue('---\ntitle: 项目方案\nabstract: 这是摘要。\n---\n'))
     expect(screen.queryByRole('button', { name: '应用为摘要' })).not.toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(3)
@@ -117,10 +158,10 @@ title: 项目方案
     render(<App />)
 
     const file = new File(['# 项目方案\n'], 'demo.md', { type: 'text/markdown' })
-    fireEvent.change(await screen.findByLabelText('选择 Markdown 文件'), { target: { files: [file] } })
+    fireEvent.change(await screen.findByLabelText('选择文件'), { target: { files: [file] } })
     fireEvent.click(await screen.findByRole('button', { name: '建立本地工作副本' }))
     const generateButton = await screen.findByRole('button', { name: '生成' })
-    const editor = screen.getByLabelText('Markdown 工作副本')
+    const editor = screen.getByLabelText('内容工作区')
 
     fireEvent.click(generateButton)
     await waitFor(() => expect(screen.getByTestId('docx-preview')).toHaveTextContent('revision=1'))
@@ -162,7 +203,7 @@ title: 项目方案
     render(<App />)
 
     const file = new File(['# 项目方案\n'], 'demo.md', { type: 'text/markdown' })
-    fireEvent.change(await screen.findByLabelText('选择 Markdown 文件'), { target: { files: [file] } })
+    fireEvent.change(await screen.findByLabelText('选择文件'), { target: { files: [file] } })
     fireEvent.click(await screen.findByRole('button', { name: '建立本地工作副本' }))
     fireEvent.click(await screen.findByRole('button', { name: '生成' }))
 
@@ -200,7 +241,7 @@ title: 项目方案
     render(<App />)
 
     const file = new File(['# 项目方案\n'], 'demo.md', { type: 'text/markdown' })
-    fireEvent.change(await screen.findByLabelText('选择 Markdown 文件'), { target: { files: [file] } })
+    fireEvent.change(await screen.findByLabelText('选择文件'), { target: { files: [file] } })
     fireEvent.click(await screen.findByRole('button', { name: '建立本地工作副本' }))
     fireEvent.click(await screen.findByRole('button', { name: '生成' }))
     await waitFor(() => expect(screen.getByTestId('docx-preview')).toHaveAttribute('data-preview-url', '/api/jobs/job-1/preview?revision=1'))
@@ -231,7 +272,7 @@ title: 项目方案
     render(<App />)
 
     const file = new File(['# 项目方案\n'], 'demo.md', { type: 'text/markdown' })
-    fireEvent.change(await screen.findByLabelText('选择 Markdown 文件'), { target: { files: [file] } })
+    fireEvent.change(await screen.findByLabelText('选择文件'), { target: { files: [file] } })
     fireEvent.click(await screen.findByRole('button', { name: '建立本地工作副本' }))
     fireEvent.click(await screen.findByRole('button', { name: '生成' }))
     const fullscreenButton = await screen.findByRole('button', { name: '全屏预览' })
@@ -264,7 +305,7 @@ title: 项目方案
     render(<App />)
 
     const file = new File(['# 项目方案\n'], 'demo.md', { type: 'text/markdown' })
-    fireEvent.change(await screen.findByLabelText('选择 Markdown 文件'), { target: { files: [file] } })
+    fireEvent.change(await screen.findByLabelText('选择文件'), { target: { files: [file] } })
     fireEvent.click(await screen.findByRole('button', { name: '建立本地工作副本' }))
     fireEvent.click(await screen.findByRole('button', { name: '生成' }))
 
@@ -307,7 +348,7 @@ title: 项目方案
     expect(screen.getByRole('button', { name: '收起设置' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '生成' })).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: '下载产物' })).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Markdown 工作副本')).toBeInTheDocument()
+    expect(screen.getByLabelText('内容工作区')).toBeInTheDocument()
     expect(screen.queryByText('请确认结构建议')).not.toBeInTheDocument()
   })
 

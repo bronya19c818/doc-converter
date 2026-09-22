@@ -20,6 +20,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from doc_converter.filename import safe_docx_filename
+from doc_converter.importers import ImporterError, ImportResult, import_document
+from doc_converter.importers.libreoffice import resolve_libreoffice
 from doc_converter.normalizer import (
     _HEADING_PATTERN,
     _LABEL_PATTERN,
@@ -68,6 +70,14 @@ class DraftRequest(BaseModel):
     source_markdown: str
 
 
+class DraftResponse(BaseModel):
+    """The imported or edited Markdown working copy for one job."""
+
+    source_format: str
+    source_markdown: str
+    warnings: list[str] = Field(default_factory=list)
+
+
 class RenderRequest(BaseModel):
     """The current work copy and optional structure actions for rendering."""
 
@@ -83,6 +93,9 @@ class JobRecord(BaseModel):
     id: str
     status: str
     source_name: str
+    source_format: str = "markdown"
+    source_original_name: str = ""
+    import_warnings: list[str] = Field(default_factory=list)
     style_pack_id: str
     style_pack_version: int
     suggestions: list[dict[str, Any]] = Field(default_factory=list)
@@ -102,30 +115,69 @@ class JobStore:
     def __init__(self, data_root: Path) -> None:
         self._jobs_root = data_root / "jobs"
 
+    def stage_upload(self, *, source_name: str, source_bytes: bytes) -> tuple[str, Path]:
+        """Create a job workspace and preserve the uploaded bytes in their own file."""
+
+        job_id = str(uuid4())
+        job_directory = self.path_for(job_id)
+        source_directory = job_directory / "source"
+        source_directory.mkdir(parents=True, exist_ok=False)
+        (job_directory / "work").mkdir()
+        original_path = source_directory / f"original{Path(source_name).suffix.lower()}"
+        original_path.write_bytes(source_bytes)
+        return job_id, original_path
+
+    def discard_staged_upload(self, job_id: str) -> None:
+        """Remove an unregistered workspace after its import has failed."""
+
+        job_directory = self.path_for(job_id).resolve()
+        if job_directory.parent != self._jobs_root.resolve():
+            raise ValueError("Invalid job directory.")
+        if job_directory.exists():
+            shutil.rmtree(job_directory)
+
     def create(
         self,
         *,
+        job_id: str,
         source_name: str,
-        source: str,
+        source_original_name: str,
+        import_result: ImportResult,
         style_pack_id: str,
         style_pack_version: int,
         suggestions: list[dict[str, Any]],
     ) -> JobRecord:
         created_at = datetime.now(timezone.utc)
         job = JobRecord(
-            id=str(uuid4()),
+            id=job_id,
             status="ready",
             source_name=source_name,
+            source_format=import_result.source_format,
+            source_original_name=source_original_name,
+            import_warnings=import_result.warnings,
             style_pack_id=style_pack_id,
             style_pack_version=style_pack_version,
             suggestions=suggestions,
             created_at=created_at,
-            source_hash=_source_hash(source),
+            source_hash=_source_hash(import_result.markdown),
         )
         job_directory = self.path_for(job.id)
-        job_directory.mkdir(parents=True, exist_ok=False)
-        (job_directory / "source.md").write_text(source, encoding="utf-8")
-        (job_directory / "source.original.md").write_text(source, encoding="utf-8")
+        (job_directory / "source" / "imported.md").write_text(
+            import_result.markdown, encoding="utf-8"
+        )
+        self.write_draft(job.id, import_result.markdown)
+        import_report = {
+            "source_format": import_result.source_format,
+            "source_original_name": source_original_name,
+            "assets_dir": _relative_job_path(import_result.assets_dir, job_directory),
+            "intermediate_files": [
+                _relative_job_path(path, job_directory) for path in import_result.intermediate_files
+            ],
+            "warnings": import_result.warnings,
+        }
+        (job_directory / "import-report.json").write_text(
+            json.dumps(import_report, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         self.save(job)
         return job
 
@@ -140,6 +192,21 @@ class JobStore:
         (self.path_for(job.id) / "job.json").write_text(
             job.model_dump_json(indent=2), encoding="utf-8"
         )
+
+    def read_draft(self, job_id: str) -> str:
+        """Read the editable Markdown copy, including jobs written by older versions."""
+
+        work_path = self.path_for(job_id) / "work" / "source.md"
+        legacy_path = self.path_for(job_id) / "source.md"
+        path = work_path if work_path.is_file() or not legacy_path.is_file() else legacy_path
+        return path.read_text(encoding="utf-8")
+
+    def write_draft(self, job_id: str, markdown: str) -> None:
+        """Persist an editable Markdown copy under the job's work directory."""
+
+        path = self.path_for(job_id) / "work" / "source.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(markdown, encoding="utf-8")
 
     def path_for(self, job_id: str) -> Path:
         return self._jobs_root / job_id
@@ -203,29 +270,53 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
         style_pack_id: str = Form(...),
         style_pack_version: int = Form(...),
     ) -> JobRecord:
-        source_name = Path(source.filename or "document.md").name
-        if Path(source_name).suffix.lower() not in {".md", ".markdown"}:
-            raise HTTPException(status_code=422, detail="当前仅支持 Markdown 文件。")
-        try:
-            source_text = source.file.read().decode("utf-8")
-        except UnicodeDecodeError as error:
-            raise HTTPException(status_code=422, detail="Markdown 必须使用 UTF-8 编码。") from error
+        source_name = _safe_upload_name(source.filename)
+        if Path(source_name).suffix.lower() not in {".md", ".markdown", ".docx", ".doc"}:
+            raise HTTPException(
+                status_code=422,
+                detail="当前支持 .md、.markdown、.docx 和 .doc 文件。",
+            )
         try:
             style_library.get(style_pack_id, style_pack_version)
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="未找到所选样式包版本。") from error
 
-        return job_store.create(
+        job_id, original_path = job_store.stage_upload(
             source_name=source_name,
-            source=source_text,
+            source_bytes=source.file.read(),
+        )
+        try:
+            imported = import_document(original_path, job_directory=job_store.path_for(job_id))
+        except ImporterError as error:
+            job_store.discard_staged_upload(job_id)
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+        return job_store.create(
+            job_id=job_id,
+            source_name=source_name,
+            source_original_name=source_name,
+            import_result=imported,
             style_pack_id=style_pack_id,
             style_pack_version=style_pack_version,
-            suggestions=_suggest_semantic_roles(source_text),
+            suggestions=_suggest_semantic_roles(imported.markdown),
         )
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str) -> JobRecord:
         return _get_job_or_404(job_store, job_id)
+
+    @app.get("/api/jobs/{job_id}/draft")
+    def get_draft(job_id: str) -> DraftResponse:
+        job = _get_job_or_404(job_store, job_id)
+        try:
+            markdown = job_store.read_draft(job.id)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail="未找到该任务的 Markdown 工作副本。") from error
+        return DraftResponse(
+            source_format=job.source_format,
+            source_markdown=markdown,
+            warnings=job.import_warnings,
+        )
 
     @app.put("/api/jobs/{job_id}/draft")
     def save_draft(job_id: str, request: DraftRequest) -> JobRecord:
@@ -240,8 +331,7 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
                 "preview_ready": False,
             }
         )
-        job_store.path_for(job.id).mkdir(parents=True, exist_ok=True)
-        (job_store.path_for(job.id) / "source.md").write_text(request.source_markdown, encoding="utf-8")
+        job_store.write_draft(job.id, request.source_markdown)
         job_store.save(updated)
         return updated
 
@@ -253,7 +343,7 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
         try:
             source_markdown = request.source_markdown
             if source_markdown is not None:
-                (job_directory / "source.md").write_text(source_markdown, encoding="utf-8")
+                job_store.write_draft(job.id, source_markdown)
                 job = job.model_copy(
                     update={
                         "draft_updated_at": datetime.now(timezone.utc),
@@ -261,7 +351,7 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
                     }
                 )
             normalized = normalize_markdown(
-                (job_directory / "source.md").read_text(encoding="utf-8"),
+                job_store.read_draft(job.id),
                 filename=job.source_name,
                 confirmed_roles=confirmed_roles,
             )
@@ -517,6 +607,22 @@ def _source_hash(source: str) -> str:
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
 
+def _safe_upload_name(filename: str | None) -> str:
+    """Keep only the client filename while handling both Windows and POSIX paths."""
+
+    candidate = (filename or "document.md").replace("\\", "/").rsplit("/", 1)[-1]
+    return candidate or "document.md"
+
+
+def _relative_job_path(path: Path | None, job_directory: Path) -> str | None:
+    if path is None:
+        return None
+    try:
+        return path.resolve().relative_to(job_directory.resolve()).as_posix()
+    except ValueError:
+        return None
+
+
 def _convert_docx_to_pdf(source_path: Path, output_path: Path) -> bool:
     """Render the already-created DOCX with a local office engine for preview only."""
 
@@ -558,17 +664,10 @@ def _convert_docx_to_pdf(source_path: Path, output_path: Path) -> bool:
 
 
 def _find_soffice() -> str | None:
-    for name in ("soffice.com", "soffice.exe", "soffice"):
-        executable = shutil.which(name)
-        if executable:
-            return executable
-
-    program_files = os.environ.get("ProgramFiles")
-    if program_files:
-        candidate = Path(program_files) / "LibreOffice" / "program" / "soffice.com"
-        if candidate.exists():
-            return str(candidate)
-    return None
+    try:
+        return str(resolve_libreoffice())
+    except ImporterError:
+        return None
 
 
 def _get_job_or_404(job_store: JobStore, job_id: str) -> JobRecord:

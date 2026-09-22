@@ -1,4 +1,8 @@
-from doc_converter.normalizer import _normalize_html_images, normalize_markdown
+from doc_converter.normalizer import (
+    _normalize_html_images,
+    _normalize_html_sub_sup,
+    normalize_markdown,
+)
 
 
 def test_confirmed_document_title_is_moved_to_front_matter() -> None:
@@ -79,6 +83,14 @@ def test_html_image_normalization_leaves_inline_code_untouched() -> None:
 
     assert '`<img src="example.png">`' in normalized
     assert '![real image](<real.png>)' in normalized
+
+
+def test_html_sub_sup_normalization_leaves_inline_code_untouched() -> None:
+    normalized = _normalize_html_sub_sup('`<sub>code</sub>` and <sub>2</sub> and <sup>2</sup>')
+
+    assert '`<sub>code</sub>`' in normalized
+    assert '~2~' in normalized
+    assert '^2^' in normalized
 
 
 def test_front_matter_metadata_is_structured_in_fixed_display_order() -> None:
@@ -610,6 +622,49 @@ def test_numbered_lists_and_fenced_code_are_not_promoted_to_headings() -> None:
     assert "2. 修复发现的问题" in result.markdown
     assert "### 1. 检查所有待处理文件" not in result.markdown
     assert "```markdown\n1. 示例编号\n```" in result.markdown
+
+
+def test_short_escaped_numbered_paragraph_is_promoted_to_heading() -> None:
+    source = """# CASE-MANUAL-001 非样式化中文编号标题
+
+1\\. 数字编号标题但使用普通正文样式 〔CASE-MANUAL-003〕
+"""
+
+    result = normalize_markdown(source, filename="压力测试.md", confirmed_roles={})
+
+    assert "## 1. 数字编号标题但使用普通正文样式 〔CASE-MANUAL-003〕" in result.markdown
+
+
+def test_unescaped_single_numbered_list_item_is_not_promoted() -> None:
+    source = "# 操作步骤\n\n1. 单项列表内容"
+
+    result = normalize_markdown(source, filename="列表.md", confirmed_roles={})
+
+    assert "1. 单项列表内容" in result.markdown
+    assert "## 1. 单项列表内容" not in result.markdown
+
+
+def test_numbered_bare_heading_requires_short_text_and_text_ending() -> None:
+    short = normalize_markdown(
+        "# 根标题\n\n1\\. 短标题内容",
+        filename="短标题.md",
+        confirmed_roles={},
+    )
+    long_text = "1\\. " + "超过三十五字的普通编号段落" * 3
+    long_result = normalize_markdown(
+        f"# 根标题\n\n{long_text}",
+        filename="长标题.md",
+        confirmed_roles={},
+    )
+    punctuation_result = normalize_markdown(
+        "# 根标题\n\n1\\. 以逗号结尾，",
+        filename="标点.md",
+        confirmed_roles={},
+    )
+
+    assert "## 1. 短标题内容" in short.markdown
+    assert "## " not in long_result.markdown.split("---", 2)[-1]
+    assert "## 1. 以逗号结尾" not in punctuation_result.markdown
 
 
 def test_preprocess_line_mapping_keeps_confirmed_roles_on_original_lines() -> None:

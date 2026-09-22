@@ -18,6 +18,7 @@ from doc_converter.normalizer import (
     _extract_leading_metadata,
     _join_split_image_syntax,
     _normalize_html_images,
+    _normalize_html_sub_sup,
     _normalize_html_tables,
     _normalize_metadata,
 )
@@ -48,7 +49,7 @@ def split_metadata(markdown: str) -> tuple[dict[str, Any], str]:
     metadata.update(extracted)
     body_lines = [line for index, line in enumerate(lines) if index not in consumed]
     body = _join_split_image_syntax("\n".join(body_lines).strip("\n"))
-    body = _normalize_html_tables(_normalize_html_images(body))
+    body = _normalize_html_sub_sup(_normalize_html_tables(_normalize_html_images(body)))
     return metadata, body + "\n"
 
 
@@ -150,6 +151,7 @@ def _map_paragraph(
     map_bold_to_point: bool = True,
 ) -> None:
     style_id = paragraph.style.style_id if paragraph.style is not None else ""
+    had_numbering = _has_numbering(paragraph)
     heading_match = _HEADING_STYLE.match(style_id)
     if paragraph._p.xpath(".//w:drawing"):
         paragraph.style = ROLE_TO_STYLE_ID["image"]
@@ -163,11 +165,11 @@ def _map_paragraph(
         paragraph.style = ROLE_TO_STYLE_ID[f"heading-{level}"]
     elif style_id not in ROLE_TO_STYLE_ID.values():
         paragraph.style = default_style
-    _remove_numbering(paragraph)
+    if not had_numbering:
+        _remove_numbering(paragraph)
     for run in paragraph.runs:
-        if run.bold is True:
-            if map_bold_to_point:
-                run.style = ROLE_TO_STYLE_ID["point"]
+        if run.bold is True and map_bold_to_point:
+            run.style = ROLE_TO_STYLE_ID["point"]
             _remove_direct_bold(run)
 
 
@@ -251,6 +253,11 @@ def _remove_numbering(paragraph: Paragraph) -> None:
     num_pr = ppr.find(qn("w:numPr"))
     if num_pr is not None:
         ppr.remove(num_pr)
+
+
+def _has_numbering(paragraph: Paragraph) -> bool:
+    ppr = paragraph._p.pPr
+    return ppr is not None and ppr.find(qn("w:numPr")) is not None
 
 
 def _remove_direct_bold(run: Any) -> None:

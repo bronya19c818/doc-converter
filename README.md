@@ -1,15 +1,21 @@
 # Doc Converter
 
-完全本地运行、无 AI 参与的 Markdown → DOCX 转换应用。原始 Markdown 永不覆盖，文档不上传；Pandoc 负责内容转换，应用负责确定性规范化、样式模板和 OOXML 收尾。
+完全本地运行、无 AI 参与的文档内容规范化转换应用。支持 Markdown、DOCX 和 DOC 输入，统一导入为可编辑 Markdown，再应用确定性规范化、样式模板和 OOXML 收尾生成 DOCX。原始上传文件永不覆盖，文档不上传。
 
 ## 当前能力
 
 - A 方案双栏工作区：左侧可编辑 Markdown 工作副本，右侧内置 DOCX 预览。
+- 支持 `.md`、`.markdown`、`.docx` 和 `.doc` 输入；DOCX 由 Pandoc 导入，DOC 先由 LibreOffice 转成中间 DOCX，再交给 Pandoc 导入。标题、表格和可提取图片进入统一 Markdown 工作副本，之后按所选 Style Pack 重新生成 DOCX。
+- DOC/DOCX 输入执行内容结构转换，不承诺保留源 Word 的完整版式；原始上传文件和实际生成的导入中间文件分别保存。
 - 样式设置默认折叠为右下角悬浮按钮，需要时展开为固定底部面板，并按“样式角色 / 页面设置”分标签管理；“生成”和“下载”作为并列悬浮操作，不必打开设置面板；样式组合支持保存不可变新版本。
 - 内置预览按 A4 纸张显示分页页面，使用已生成的 DOCX 转 PDF 结果，不需要滚动到页面底部才能打开设置。
 - 结构建议是可执行的确定性动作：可将标题区内容应用为文档标题、副标题、摘要、关键词、作者、单位、部门或日期；应用会直接写入 Markdown Front Matter 并从标题区移除原行，不再阻塞生成。
 - 任务产物包括 DOCX、规范化 Markdown、审计报告和样式快照。
 - Pandoc 随 Windows 发布包分发；Docker Compose 使用本地 LibreOffice 生成 PDF 预览，Word/WPS 仍可作为用户显式进行高保真复核的最终打开工具。
+
+## Round-trip 保留原则
+
+转换以 Pandoc Markdown 的原生能力为第一选择：标题、段落、上下角标、超链接、项目符号、简单表格等直接使用 Pandoc 能读写的 Markdown 表达。只有 Pandoc Markdown 没有对应表达的分页、复杂合并/嵌套表格和 Word 尾注，才使用带明确标记的内部扩展，并在 DOCX 输出阶段恢复为 OOXML 结构。Word 修订内容导入时接受最终版本，避免把修订标记泄漏到工作副本。
 
 ## Markdown 二次整理
 
@@ -68,15 +74,17 @@ keywords:
 
 `DC_DocumentTitle`、`DC_DocumentSubtitle`、`DC_OrganizationDepartment`、`DC_Author`、`DC_Date`、`DC_AbstractLabel`、`DC_AbstractContent`、`DC_KeywordsLabel`、`DC_KeywordsContent`、`DC_Heading1` 至 `DC_Heading6`、`DC_BodyParagraph`、`DC_TableBody`、`DC_Point`、`DC_TableCaption`、`DC_FigureCaption`、`DC_ReferenceHeading`、`DC_ReferenceEntry`、`DC_Footer`。
 
-输出不依赖电脑上已有的同名 Word 样式；每个字体同时写入中文和西文四个字体槽位，避免字体回退。文档标题独立使用 `DC_DocumentTitle`，正文 Markdown 的 H1-H6 分别映射到 `DC_Heading1` 至 `DC_Heading6`，不会把二、三级标题压成一级标题。Markdown 粗体映射为“要点”字符样式。列表编号保留为普通文字，不生成 Word 自动编号和自动缩进。
+输出不依赖电脑上已有的同名 Word 样式；每个字体同时写入中文和西文四个字体槽位，避免字体回退。文档标题独立使用 `DC_DocumentTitle`，正文 Markdown 的 H1-H6 分别映射到 `DC_Heading1` 至 `DC_Heading6`，不会把二、三级标题压成一级标题。Markdown 粗体映射为“要点”字符样式。项目符号保留为 Word 列表；需要作为普通正文保留的编号行会转为普通文字，不生成自动编号和自动缩进。
 
 导出的 DOCX 文件名使用文档标题并清理 Windows 非法字符；没有标题时使用源文件名。
 
 ## 架构
 
 ```text
-原始 Markdown
-  → 可编辑工作副本
+Markdown ───────────────────────────────────────┐
+DOCX ── Pandoc ─────────────────────────────────┤
+DOC ── LibreOffice → 中间 DOCX → Pandoc ────────┘
+  → 统一的可编辑 Markdown 工作副本
   → 确定性规范化与完整性校验
   → normalized-md/v1 + 样式快照
   → Pandoc + 自包含参考 DOCX
@@ -84,9 +92,11 @@ keywords:
   → A4 分页的内置浏览器预览与本地产物下载
 ```
 
+当前版本新增了多格式输入适配层，输出仍为 DOCX。后续可在规范化输出旁增加 Markdown、DOC 或其他输出适配器；需要保留原始版式的格式转码可以使用独立转换链路，不必强制经过 Markdown。
+
 ## 本地运行
 
-开发环境需要 Python 3.12+、[uv](https://docs.astral.sh/uv/)、Node.js 和 Pandoc：
+开发环境需要 Python 3.12+、[uv](https://docs.astral.sh/uv/)、Node.js 和 Pandoc。导入 `.doc` 还需要本机安装 LibreOffice；可将 `soffice` 放入 PATH，或通过 `DOC_CONVERTER_LIBREOFFICE` 指定可执行文件。导入 `.docx` 不要求 LibreOffice。
 
 ```powershell
 uv sync --group dev
@@ -105,11 +115,11 @@ npm --prefix frontend run build
 powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
 ```
 
-脚本默认从 `C:\Program Files\Pandoc\pandoc.exe` 取 Pandoc，也可使用 `-PandocPath` 指定本地文件。LibreOffice 不会被脚本安装或自动调用。
+脚本默认从 `C:\Program Files\Pandoc\pandoc.exe` 取 Pandoc，也可使用 `-PandocPath` 指定本地文件。Windows 发布包不包含 LibreOffice；导入 `.doc` 时会检测本机安装，缺少 LibreOffice 不影响 Markdown 和 DOCX 输入。
 
 ## Docker Compose
 
-Compose 部署包含前端静态资源、FastAPI 服务和 Pandoc，项目名固定为 `doc-converter`。任务、样式组合和转换产物保存在命名卷 `doc-converter-data` 中：
+Compose 部署包含前端静态资源、FastAPI 服务、Pandoc 和 LibreOffice，项目名固定为 `doc-converter`。任务、样式组合和转换产物保存在命名卷 `doc-converter-data` 中；DOC 输入可直接复用镜像内的 LibreOffice：
 
 ```powershell
 docker compose -p doc-converter up --build -d

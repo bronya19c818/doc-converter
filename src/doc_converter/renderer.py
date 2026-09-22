@@ -10,6 +10,13 @@ from pathlib import Path
 
 from docx import Document
 
+from doc_converter.docx_extensions import (
+    extract_complex_tables,
+    extract_page_breaks,
+    restore_complex_tables,
+    restore_endnotes,
+    restore_page_breaks,
+)
 from doc_converter.docx_postprocess import (
     apply_postprocess,
     protect_ordered_list_literals,
@@ -49,6 +56,8 @@ def render_docx(
     work_dir.mkdir(parents=True, exist_ok=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     metadata, body = split_metadata(markdown)
+    body = extract_page_breaks(body)
+    body, complex_tables = extract_complex_tables(body)
     source_path = work_dir / "document.body.md"
     reference_path = work_dir / "reference.docx"
     source_path.write_text(protect_ordered_list_literals(body), encoding="utf-8")
@@ -57,7 +66,7 @@ def render_docx(
     command = [
         str(resolved_pandoc),
         str(source_path),
-        "--from=gfm+footnotes+tex_math_dollars+raw_html",
+        "--from=gfm+footnotes+tex_math_dollars+raw_html+subscript+superscript",
         "--to=docx",
         "--standalone",
         f"--reference-doc={reference_path}",
@@ -76,6 +85,8 @@ def render_docx(
         raise RendererError(f"DOCX 渲染失败：{detail}")
 
     document = Document(str(output_path))
+    restore_complex_tables(document, complex_tables, resource_root=work_dir.parent)
+    restore_page_breaks(document)
     image_role = style_pack.roles.get("image", {})
     image_settings = image_role.get("image", {})
     max_image_width = image_settings.get("max_width_cm") if isinstance(image_settings, dict) else None
@@ -85,6 +96,7 @@ def render_docx(
         max_image_width_cm=max_image_width if isinstance(max_image_width, (int, float)) else None,
     )
     document.save(str(output_path))
+    restore_endnotes(output_path, markdown)
     return RenderResult(output_path=output_path, reference_docx_path=reference_path, pandoc_path=resolved_pandoc)
 
 

@@ -19,6 +19,9 @@ export type Job = {
   id: string
   status: string
   source_name: string
+  source_format: string
+  source_original_name: string
+  import_warnings: string[]
   style_pack_id: string
   style_pack_version: number
   suggestions: Suggestion[]
@@ -29,6 +32,12 @@ export type Job = {
   source_hash: string
   render_revision: number
   preview_ready: boolean
+}
+
+export type JobDraft = {
+  source_format: string
+  source_markdown: string
+  warnings: string[]
 }
 
 const apiBase = import.meta.env.VITE_API_BASE ?? ''
@@ -79,6 +88,10 @@ export function createJob(file: File, stylePack: StylePack): Promise<Job> {
   formData.append('style_pack_id', stylePack.id)
   formData.append('style_pack_version', String(stylePack.version))
   return request<Job>('/api/jobs', { method: 'POST', body: formData })
+}
+
+export function getJobDraft(jobId: string): Promise<JobDraft> {
+  return request<JobDraft>(`/api/jobs/${jobId}/draft`)
 }
 
 export function saveDraft(jobId: string, sourceMarkdown: string): Promise<Job> {
