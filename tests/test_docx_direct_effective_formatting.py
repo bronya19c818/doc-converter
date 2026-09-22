@@ -5,7 +5,6 @@ from typing import Any, Callable
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement, parse_xml
 from docx.oxml.ns import qn
 from docx.shared import Pt

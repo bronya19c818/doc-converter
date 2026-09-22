@@ -4,11 +4,11 @@ import hashlib
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
+import pytest
 from docx import Document
 from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
-import pytest
 
 from doc_converter.docx_direct.analyzer import analyze_docx
 
