@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from doc_converter.docx_direct.analyzer import analyze_docx
 from doc_converter.docx_direct.classifier import (
     action_for_confidence,
     classify_document,
 )
+from doc_converter.docx_direct.model import DocumentAnalysis, ElementAnalysis
 
 FIXTURE = Path(__file__).parent / "fixtures" / "DOCX转Markdown压力测试_V1_结构兼容性.docx"
 
@@ -66,3 +68,132 @@ def test_action_thresholds_are_deterministic() -> None:
     assert action_for_confidence("heading-1", 0.70) == "uncertain"
     assert action_for_confidence("heading-1", 0.69) == "preserved"
     assert action_for_confidence("unknown", 0.99) == "preserved"
+
+
+def _synthetic_element(
+    text: str,
+    order: int,
+    *,
+    style_id: str = "Normal",
+    style_name: str = "Normal",
+    effective_format: dict[str, Any] | None = None,
+    signals: dict[str, Any] | None = None,
+    table_context: dict[str, Any] | None = None,
+    numbering_properties: dict[str, Any] | None = None,
+) -> ElementAnalysis:
+    return ElementAnalysis(
+        element_id=f"p-{order + 1:04d}",
+        element_type="paragraph",
+        text=text,
+        document_order=order,
+        xml_path=(order,),
+        region="body",
+        original_style_id=style_id,
+        original_style_name=style_name,
+        effective_format=effective_format or {},
+        signals=signals or {},
+        numbering_properties=numbering_properties or {},
+        table_context=table_context,
+    )
+
+
+def _classify_synthetic(elements: list[ElementAnalysis]) -> dict[str, ElementAnalysis]:
+    analysis = DocumentAnalysis(source_sha256="a" * 64, elements=elements)
+    result = classify_document(analysis)
+    return {element.text: element for element in result.elements}
+
+
+def test_outline_level_is_strong_but_not_absolute() -> None:
+    by_text = _classify_synthetic(
+        [
+            _synthetic_element(
+                "2 适用范围",
+                0,
+                effective_format={
+                    "outline_level": 0,
+                    "alignment": "left",
+                    "dominant_font_size_pt": 16,
+                    "dominant_font_size_ratio": 1.0,
+                },
+            ),
+            _synthetic_element(
+                "表格中的普通正文",
+                1,
+                effective_format={
+                    "outline_level": 0,
+                    "dominant_font_size_pt": 12,
+                    "dominant_font_size_ratio": 1.0,
+                },
+                table_context={"table_depth": 1, "row": 0, "column": 0},
+            ),
+            _synthetic_element(
+                "这是一个很长的正文句子，包含完整说明并以句号结束。",
+                2,
+                effective_format={
+                    "outline_level": 0,
+                    "dominant_font_size_pt": 12,
+                    "dominant_font_size_ratio": 1.0,
+                },
+            ),
+        ]
+    )
+
+    assert by_text["2 适用范围"].role == "heading-1"
+    assert by_text["表格中的普通正文"].role == "body-table"
+    assert by_text["这是一个很长的正文句子，包含完整说明并以句号结束。"].role == "body-paragraph"
+
+
+def test_custom_style_based_on_heading_is_not_automatically_a_heading() -> None:
+    item = _classify_synthetic(
+        [
+            _synthetic_element(
+                "自定义样式正文句。",
+                0,
+                style_id="CustomHeading",
+                style_name="自定义标题",
+                effective_format={
+                    "outline_level": 0,
+                    "dominant_font_size_pt": 16,
+                    "dominant_font_size_ratio": 1.0,
+                },
+                signals={
+                    "style_chain": ["Heading1", "CustomHeading"],
+                    "based_on_heading": True,
+                },
+            )
+        ]
+    )["自定义样式正文句。"]
+
+    assert item.role == "body-paragraph"
+    assert item.action == "mapped"
+    assert item.signals["based_on_heading"] is True
+
+
+def test_title_and_subtitle_use_effective_format_and_keep_boundaries() -> None:
+    by_text = _classify_synthetic(
+        [
+            _synthetic_element(
+                "有效格式文档标题",
+                0,
+                effective_format={
+                    "alignment": "center",
+                    "dominant_font_size_pt": 22,
+                    "dominant_font_size_ratio": 1.0,
+                },
+            ),
+            _synthetic_element(
+                "有效格式文档副标题",
+                1,
+                effective_format={
+                    "alignment": "center",
+                    "dominant_font_size_pt": 16,
+                    "dominant_font_size_ratio": 1.0,
+                },
+            ),
+            _synthetic_element("1. 正文起始标题", 2, style_id="Heading1", style_name="Heading 1"),
+        ]
+    )
+
+    assert by_text["有效格式文档标题"].role == "document-title"
+    assert by_text["有效格式文档副标题"].role == "document-subtitle"
+    assert by_text["有效格式文档标题"].document_order + 1 == by_text["有效格式文档副标题"].document_order

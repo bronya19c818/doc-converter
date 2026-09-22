@@ -49,6 +49,22 @@ _NUMBERED_PREFIXES = (
 )
 _TERMINAL_BODY_PUNCTUATION = "。；：，、？！.!?,;:"
 _CAPTION_PATTERN = re.compile(r"^\s*([表图])\s*(?:[一二三四五六七八九十百\d]+)")
+_AUTHOR_LABEL_PATTERN = re.compile(r"^\s*(作者|编制|编写)\s*[:：]\s*(\S.{0,39})\s*$")
+_ORGANIZATION_LABEL_PATTERN = re.compile(
+    r"^\s*(单位|部门|编制单位)\s*[:：]\s*(\S.{0,79})\s*$"
+)
+_DATE_PATTERN = re.compile(
+    r"^(?:"
+    r"\d{4}年\d{1,2}月(?:\d{1,2}日?)?|"
+    r"\d{4}[-.]\d{1,2}[-.]\d{1,2}|"
+    r"[二〇零一二三四五六七八九十百]+年[一二三四五六七八九十百]+月"
+    r")$"
+)
+_ORGANIZATION_SUFFIX_PATTERN = re.compile(r"(公司|部门|中心|研究院|大学|学院)$")
+_PERSON_NAME_PATTERN = re.compile(r"^[\u4e00-\u9fff]{2,4}$")
+_COMMON_SURNAMES = frozenset(
+    "赵钱孙李周吴郑王冯陈褚卫蒋沈韩杨朱秦尤许何吕施张孔曹严华金魏陶姜戚谢邹喻柏水窦章云苏潘葛奚范彭郎鲁韦昌马苗凤花方俞任袁柳"
+)
 
 
 def action_for_confidence(role: str, confidence: float) -> Action:
@@ -90,12 +106,29 @@ def classify_document(analysis: DocumentAnalysis) -> DocumentAnalysis:
             else:
                 classified.append(_decision(element, "reference-entry", 0.95, "参考文献边界后的条目"))
             continue
+        if element.region == "preface":
+            metadata = _metadata_decision(element)
+            if metadata is not None:
+                classified.append(metadata)
+                continue
         if _is_heading_style(element.original_style_id, element.original_style_name):
             level = _heading_level(element.original_style_id, element.original_style_name)
             classified.append(_decision(element, f"heading-{level}", 0.99, "使用 Word 原生 Heading 样式"))
             continue
         if _is_list(element):
             classified.append(_decision(element, "unknown", 0.99, "检测到自动列表或项目符号，保留列表语义"))
+            continue
+        outline_level = _outline_heading_level(element)
+        if outline_level is not None:
+            classified.append(
+                _decision(
+                    element,
+                    f"heading-{outline_level}",
+                    0.97,
+                    "outlineLvl 与段落内容共同符合标题特征",
+                    signals={"outline_heading": True},
+                )
+            )
             continue
         numbered_level = _numbered_heading_level(text)
         if numbered_level is not None:
@@ -111,6 +144,9 @@ def classify_document(analysis: DocumentAnalysis) -> DocumentAnalysis:
         if _is_literal_numbering(element.text):
             classified.append(_decision(element, "unknown", 0.96, "疑似正文中的字面编号，避免自动升格"))
             continue
+        if _is_body_sentence(text):
+            classified.append(_decision(element, "body-paragraph", 0.93, "完整正文句特征优先于继承的标题样式属性"))
+            continue
         if _is_custom_style(element.original_style_name):
             classified.append(_decision(element, "unknown", 0.85, "自定义或特殊 Word 样式无法安全映射"))
             continue
@@ -119,13 +155,24 @@ def classify_document(analysis: DocumentAnalysis) -> DocumentAnalysis:
     return analysis.model_copy(update={"elements": classified})
 
 
-def _decision(element: ElementAnalysis, role: str, confidence: float, reason: str) -> ElementAnalysis:
+def _decision(
+    element: ElementAnalysis,
+    role: str,
+    confidence: float,
+    reason: str,
+    *,
+    signals: dict[str, Any] | None = None,
+) -> ElementAnalysis:
+    merged_signals = dict(element.signals)
+    if signals:
+        merged_signals.update(signals)
     return element.model_copy(
         update={
             "role": role,
             "confidence": confidence,
             "action": action_for_confidence(role, confidence),
             "reasons": [reason],
+            "signals": merged_signals,
         }
     )
 
@@ -141,7 +188,11 @@ def _assign_regions(elements: list[ElementAnalysis]) -> None:
             region: DocumentRegion = "postface"
         elif body_started:
             region = "body"
-        elif _is_heading_style(element.original_style_id, element.original_style_name) or _numbered_heading_level(text):
+        elif (
+            _is_heading_style(element.original_style_id, element.original_style_name)
+            or _outline_heading_level(element) is not None
+            or _numbered_heading_level(text)
+        ):
             body_started = True
             region = "body"
         else:
@@ -163,7 +214,13 @@ def _classify_title_area(elements: list[ElementAnalysis]) -> None:
     if not candidates:
         return
     title = max(candidates, key=lambda item: (_font_size_pt(item), -item.document_order))
-    title = _decision(title, "document-title", 0.98, "文前居中且字号最大的标题候选")
+    title = _decision(
+        title,
+        "document-title",
+        0.98,
+        "文前居中且有效主导字号最大的标题候选",
+        signals={"title_candidate": True},
+    )
     elements[title.document_order] = title
     title_size = _font_size_pt(title)
     subtitle_candidates = [
@@ -178,17 +235,23 @@ def _classify_title_area(elements: list[ElementAnalysis]) -> None:
             "document-subtitle",
             0.95,
             "标题后的独立居中副标题",
+            signals={"title_candidate": True},
         )
 
 
 def _alignment(element: ElementAnalysis) -> str | None:
-    alignment = element.paragraph_properties.get("alignment")
+    alignment = element.effective_format.get("alignment")
+    if alignment is None:
+        alignment = element.paragraph_properties.get("alignment")
     if not isinstance(alignment, dict):
-        return None
+        return str(alignment) if isinstance(alignment, str) else None
     return _attribute_value(alignment, "val")
 
 
 def _font_size_pt(element: ElementAnalysis) -> float:
+    dominant = element.effective_format.get("dominant_font_size_pt")
+    if isinstance(dominant, (int, float)):
+        return float(dominant)
     sizes: list[float] = []
     for run in element.run_properties:
         if not isinstance(run, dict):
@@ -201,6 +264,83 @@ def _font_size_pt(element: ElementAnalysis) -> float:
             except ValueError:
                 continue
     return max(sizes, default=0.0)
+
+
+def _outline_heading_level(element: ElementAnalysis) -> int | None:
+    """Return a conservative heading level from outline evidence and context."""
+
+    if element.table_context is not None or _is_list(element):
+        return None
+    if element.signals.get("based_on_heading"):
+        return None
+    text = element.text.strip()
+    if not text or len(text) > 80 or _is_body_sentence(text):
+        return None
+    if any(
+        bool(element.signals.get(key)) or bool(element.effective_format.get(key))
+        for key in ("has_drawing", "has_field", "has_manual_break")
+    ):
+        return None
+    value = element.effective_format.get("outline_level")
+    if not isinstance(value, (int, float, str)):
+        return None
+    try:
+        level = int(value)
+    except (TypeError, ValueError):
+        return None
+    if 0 <= level <= 5:
+        return level + 1
+    return None
+
+
+def _is_body_sentence(text: str) -> bool:
+    stripped = text.strip()
+    return len(stripped) >= 6 and stripped.endswith(tuple(_TERMINAL_BODY_PUNCTUATION))
+
+
+def _metadata_decision(element: ElementAnalysis) -> ElementAnalysis | None:
+    text = element.text.strip()
+    if _AUTHOR_LABEL_PATTERN.fullmatch(text):
+        return _decision(
+            element,
+            "author",
+            0.98,
+            "检测到明确的作者或编制标签",
+            signals={"metadata_label": "author"},
+        )
+    if _ORGANIZATION_LABEL_PATTERN.fullmatch(text):
+        return _decision(
+            element,
+            "organization-department",
+            0.98,
+            "检测到明确的单位或部门标签",
+            signals={"metadata_label": "organization-department"},
+        )
+    if _DATE_PATTERN.fullmatch(text):
+        return _decision(
+            element,
+            "date",
+            0.96,
+            "文前段落符合明确日期格式",
+            signals={"date_pattern": True},
+        )
+    if _PERSON_NAME_PATTERN.fullmatch(text) and text[0] in _COMMON_SURNAMES:
+        return _decision(
+            element,
+            "author",
+            0.68,
+            "文前纯姓名缺少明确标签，仅保留为低置信元数据线索",
+            signals={"unlabeled_metadata": "author"},
+        )
+    if _ORGANIZATION_SUFFIX_PATTERN.search(text) and len(text) <= 40:
+        return _decision(
+            element,
+            "organization-department",
+            0.72,
+            "文前机构名称缺少明确标签，仅保留为低置信元数据线索",
+            signals={"unlabeled_metadata": "organization-department"},
+        )
+    return None
 
 
 def _attribute_value(value: dict[str, Any] | None, attribute: str) -> str | None:
@@ -270,7 +410,13 @@ def _is_custom_style(style_name: str | None) -> bool:
 
 def _metadata_like(text: str) -> bool:
     normalized = text.strip().lower().rstrip("：:")
-    return normalized.startswith(("摘要", "关键词", "作者", "单位", "部门", "日期", "时间"))
+    if normalized.startswith(("摘要", "关键词", "作者", "单位", "部门", "日期", "时间")):
+        return True
+    if _DATE_PATTERN.fullmatch(text.strip()):
+        return True
+    if _PERSON_NAME_PATTERN.fullmatch(text.strip()) and text.strip()[0] in _COMMON_SURNAMES:
+        return True
+    return bool(_ORGANIZATION_SUFFIX_PATTERN.search(text.strip()) and len(text.strip()) <= 40)
 
 
 def _is_reference_boundary(text: str) -> bool:
