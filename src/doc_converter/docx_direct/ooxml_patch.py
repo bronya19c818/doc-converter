@@ -6,6 +6,21 @@ from collections.abc import Mapping
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from docx.oxml import parse_xml
+from lxml import etree
+
+
+def parse_xml_payload(payload: bytes):
+    """Parse an OOXML payload with the same namespace-aware parser as python-docx."""
+
+    return parse_xml(payload)
+
+
+def serialize_xml_payload(root) -> bytes:
+    """Serialize an OOXML tree without dropping its namespace declarations."""
+
+    return etree.tostring(root, encoding="UTF-8", xml_declaration=True)
+
 
 def read_zip_member(source_path: Path, member: str) -> bytes:
     """Read one raw member payload from a DOCX ZIP package."""
