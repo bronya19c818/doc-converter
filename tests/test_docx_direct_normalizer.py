@@ -38,6 +38,13 @@ def test_normalizer_never_modifies_source_and_writes_audit_artifacts(tmp_path: P
     assert report["source_sha256"] == before
     assert report["source_unchanged"] is True
     assert report["output_sha256"] == file_sha256(output)
+    analysis_payload = json.loads(result.analysis_path.read_text(encoding="utf-8"))
+    assert analysis_payload["evidence_fields"] == [
+        "paragraph_properties",
+        "run_properties",
+        "effective_format",
+        "signals",
+    ]
     assert all(item["target_style"] for item in report["elements"] if item["action"] == "mapped")
 
 

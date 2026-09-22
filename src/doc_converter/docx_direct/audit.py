@@ -17,6 +17,12 @@ AUDIT_FILENAMES = (
     "docx-normalization-report.json",
     "style-pack.snapshot.json",
 )
+EVIDENCE_FIELDS = [
+    "paragraph_properties",
+    "run_properties",
+    "effective_format",
+    "signals",
+]
 
 
 def sha256_file(path: Path) -> str:
@@ -60,7 +66,7 @@ def write_audit_bundle(
     patch_report: dict[str, Any],
 ) -> None:
     audit_dir.mkdir(parents=True, exist_ok=True)
-    _write_json(audit_dir / "docx-analysis.json", analysis.model_dump(mode="json"))
+    _write_json(audit_dir / "docx-analysis.json", _analysis_payload(analysis))
 
     counts = Counter(record.action for record in records)
     modified_parts: list[str] = []
@@ -84,6 +90,19 @@ def write_audit_bundle(
     }
     _write_json(audit_dir / "docx-normalization-report.json", report)
     _write_json(audit_dir / "style-pack.snapshot.json", style_pack.model_dump(mode="json"))
+
+
+def _analysis_payload(analysis: DocumentAnalysis) -> dict[str, Any]:
+    """Serialize direct evidence, resolved evidence, and classification separately."""
+
+    payload = analysis.model_dump(mode="json")
+    payload["evidence_fields"] = list(EVIDENCE_FIELDS)
+    for element in payload.get("elements", []):
+        for field in EVIDENCE_FIELDS:
+            element.setdefault(field, {})
+        for field in ("role", "confidence", "action", "reasons"):
+            element.setdefault(field, None)
+    return payload
 
 
 def _write_json(path: Path, payload: Any) -> None:
