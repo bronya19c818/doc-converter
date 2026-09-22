@@ -26,6 +26,8 @@ class ElementAnalysis(BaseModel):
     run_properties: list[dict[str, Any]] = Field(default_factory=list)
     numbering_properties: dict[str, Any] = Field(default_factory=dict)
     table_context: dict[str, Any] | None = None
+    effective_format: dict[str, Any] = Field(default_factory=dict)
+    signals: dict[str, Any] = Field(default_factory=dict)
     has_hyperlink: bool = False
     has_tab: bool = False
     has_manual_break: bool = False

@@ -86,6 +86,25 @@ def test_direct_analysis_models_round_trip_through_json_data() -> None:
     assert restored_result.output_path == Path("out.docx")
 
 
+def test_effective_format_and_signals_round_trip_through_json_data() -> None:
+    element = _element(
+        effective_format={"font_size_pt": 22, "alignment": "center"},
+        signals={"style_chain": ["TitleInherited"]},
+    )
+
+    restored = ElementAnalysis.model_validate(element.model_dump())
+
+    assert restored.effective_format == {"font_size_pt": 22, "alignment": "center"}
+    assert restored.signals == {"style_chain": ["TitleInherited"]}
+
+
+def test_effective_format_and_signals_default_to_empty_dicts() -> None:
+    element = _element()
+
+    assert element.effective_format == {}
+    assert element.signals == {}
+
+
 def test_element_confidence_and_action_are_constrained() -> None:
     with pytest.raises(ValidationError):
         _element(confidence=1.01)

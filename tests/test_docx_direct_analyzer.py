@@ -4,6 +4,10 @@ import hashlib
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from docx import Document
+from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Pt
 import pytest
 
 from doc_converter.docx_direct.analyzer import analyze_docx
@@ -49,3 +53,25 @@ def test_analyzer_rejects_package_without_main_document(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="word/document.xml"):
         analyze_docx(missing_document)
+
+
+def test_analyzer_attaches_effective_format_without_overwriting_direct_evidence(
+    tmp_path: Path,
+) -> None:
+    document = Document()
+    style = document.styles.add_style("TitleInherited", WD_STYLE_TYPE.PARAGRAPH)
+    style.font.size = Pt(22)
+    style.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    document.add_paragraph("继承格式标题", style="TitleInherited")
+    source = tmp_path / "inherited.docx"
+    document.save(source)
+
+    item = next(
+        item for item in analyze_docx(source).elements if item.text == "继承格式标题"
+    )
+
+    assert item.effective_format["font_size_pt"] == 22
+    assert item.effective_format["alignment"] == "center"
+    assert item.paragraph_properties.get("alignment") is None
+    assert item.effective_format["outline_level"] is None
+    assert item.signals["style_chain"] == ["TitleInherited"]

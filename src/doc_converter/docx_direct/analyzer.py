@@ -11,6 +11,7 @@ from docx import Document
 from docx.oxml import parse_xml
 from docx.oxml.ns import qn
 
+from doc_converter.docx_direct.effective_format import EffectiveFormatResolver
 from doc_converter.docx_direct.model import DocumentAnalysis, ElementAnalysis
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
@@ -40,6 +41,7 @@ def analyze_docx(source_path: Path) -> DocumentAnalysis:
             if "word/document.xml" not in entries:
                 raise ValueError("DOCX 压缩包缺少 word/document.xml。")
             document_xml = package.read("word/document.xml")
+            styles_xml = package.read("word/styles.xml") if "word/styles.xml" in entries else None
     except BadZipFile as error:
         raise ValueError("输入文件不是有效的 DOCX ZIP。") from error
     except OSError as error:
@@ -56,6 +58,11 @@ def analyze_docx(source_path: Path) -> DocumentAnalysis:
         raise ValueError("无法读取 DOCX 的文档对象模型。") from error
 
     style_map = _style_map(document)
+    resolver = (
+        EffectiveFormatResolver.from_styles_xml(styles_xml)
+        if styles_xml is not None
+        else EffectiveFormatResolver.empty()
+    )
     elements: list[ElementAnalysis] = []
     body = root.find(qn("w:body"))
     if body is None:
@@ -73,6 +80,7 @@ def analyze_docx(source_path: Path) -> DocumentAnalysis:
                 style_id=style_id,
                 style_name=style_name,
                 table_context=table_context,
+                resolver=resolver,
             )
         )
 
@@ -161,11 +169,25 @@ def _analyze_paragraph(
     style_id: str | None,
     style_name: str | None,
     table_context: dict[str, Any] | None,
+    resolver: EffectiveFormatResolver,
 ) -> ElementAnalysis:
     run_properties = [_run_properties(run) for run in paragraph.iter(qn("w:r"))]
     ppr = paragraph.find(qn("w:pPr"))
     paragraph_properties = _paragraph_properties(ppr)
     numbering_properties = paragraph_properties.get("numbering", {})
+    resolved_format = resolver.resolve_paragraph(
+        paragraph,
+        paragraph_style_id=style_id,
+    )
+    effective_format = {
+        key: value
+        for key, value in resolved_format.items()
+        if key not in {"style_chain", "based_on_heading"}
+    }
+    signals = {
+        "style_chain": resolved_format.get("style_chain", []),
+        "based_on_heading": resolved_format.get("based_on_heading", False),
+    }
     return ElementAnalysis(
         element_id=element_id,
         element_type="paragraph",
@@ -179,6 +201,8 @@ def _analyze_paragraph(
         run_properties=run_properties,
         numbering_properties=numbering_properties,
         table_context=table_context,
+        effective_format=effective_format,
+        signals=signals,
         has_hyperlink=paragraph.find(".//" + qn("w:hyperlink")) is not None,
         has_tab=paragraph.find(".//" + qn("w:tab")) is not None,
         has_manual_break=paragraph.find(".//" + qn("w:br")) is not None,
