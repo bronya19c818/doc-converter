@@ -49,7 +49,11 @@ def normalize_docx_direct(
 
         style_report = inject_styles_into_docx(source, style_pack, staged_styles)
         before_document = read_zip_member(staged_styles, "word/document.xml")
-        patched_document, patch_report = patch_document_xml(before_document, analysis)
+        patched_document, patch_report = patch_document_xml(
+            before_document,
+            analysis,
+            styles_payload=read_zip_member(staged_styles, "word/styles.xml"),
+        )
         write_zip_copy(
             staged_styles,
             staged_output,

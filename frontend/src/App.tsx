@@ -24,6 +24,7 @@ import {
   Job,
   listStylePacks,
   normalizeAndRender,
+  normalizeDocxDirect,
   previewUrl,
   saveDraft,
   StylePack,
@@ -78,6 +79,7 @@ export function App() {
   )
   const markdownChanged = sourceMarkdown !== originalMarkdown
   const completedJob = job?.status === 'completed' ? job : null
+  const directMode = sourceFile?.name.toLowerCase().endsWith('.docx') ?? false
 
   useEffect(() => {
     void loadStylePacks()
@@ -114,6 +116,7 @@ export function App() {
     const file = event.target.files?.[0] ?? null
     setSourceFile(file)
     setJob(null)
+    setSettingsTab('styles')
     setDownloadsOpen(false)
     setError(null)
     if (file) {
@@ -138,7 +141,7 @@ export function App() {
     setError(null)
     setDownloadsOpen(false)
     try {
-      const created = await createJob(sourceFile, selectedPack)
+      const created = await createJob(sourceFile, selectedPack, 'round-trip')
       const importedDraft = isMarkdownFile(sourceFile.name) ? null : await getJobDraft(created.id)
       const importedMarkdown = importedDraft?.source_markdown ?? sourceMarkdown
       const jobWithImportWarnings = importedDraft
@@ -173,14 +176,19 @@ export function App() {
   }
 
   async function handleRender() {
-    if (!job || !selectedPack) return
+    if (!selectedPack || (!job && !(directMode && sourceFile))) return
     setBusy(true)
     setIsRendering(true)
     setError(null)
     setDownloadsOpen(false)
     try {
-      const renderedJob = await normalizeAndRender(job.id, sourceMarkdown, {}, selectedPack)
+      const currentJob = job ?? await createJob(sourceFile!, selectedPack, 'docx-direct')
+      if (!job) setJob(currentJob)
+      const renderedJob = directMode
+        ? await normalizeDocxDirect(currentJob.id, selectedPack)
+        : await normalizeAndRender(currentJob.id, sourceMarkdown, {}, selectedPack)
       setJob(renderedJob)
+      if (directMode) return
       if (renderedJob.artifacts.includes('document.normalized.md')) {
         try {
           const normalizedMarkdown = await fetchArtifactText(
@@ -366,6 +374,7 @@ export function App() {
             </span>
           </div>
           <p className="field-help source-help">源文件不会被改动。</p>
+          {directMode ? <p className="direct-mode-help">直接为识别出的段落应用样式，保留原文档的表格合并、图片和页面布局。完成后可预览、下载 DOCX 和处理报告。</p> : <>
           <div className="editor-label-row">
             <label className="editor-label" htmlFor="markdown-draft">
               <IconPencil aria-hidden="true" size={22} stroke={1.8} />
@@ -390,7 +399,8 @@ export function App() {
             <IconCircleCheck aria-hidden="true" size={18} />
             {markdownChanged ? '有未保存修改' : '工作区已保存'}
           </div>
-          <div className="draft-actions">
+          </>}
+          {!directMode ? <div className="draft-actions">
             <button className="secondary-action primary-draft-action" disabled={busy || !sourceFile || !selectedPack} onClick={handlePrepare} type="button">
               <IconFilePlus aria-hidden="true" size={20} />
               {job ? '重新建立工作副本' : '建立本地工作副本'}
@@ -398,9 +408,9 @@ export function App() {
             <button className="secondary-action" disabled={busy || !job || !markdownChanged} onClick={handleSaveDraft} type="button">
               <IconDeviceFloppy aria-hidden="true" size={20} />保存工作副本
             </button>
-          </div>
+          </div> : null}
 
-          {job?.suggestions.length ? (
+          {!directMode && job?.suggestions.length ? (
             <section className="suggestions" aria-label="结构建议">
               <h3>结构建议</h3>
               <p className="field-help">置信度超过90%的建议会自动应用，其余建议可手动应用。</p>
@@ -519,7 +529,7 @@ export function App() {
             {([
               ['styles', '样式角色'],
               ['page', '页面设置'],
-            ] as const).map(([tab, label]) => (
+            ] as const).filter(([tab]) => !directMode || tab !== 'page').map(([tab, label]) => (
               <button
                 aria-controls={`settings-panel-${tab}`}
                 aria-selected={settingsTab === tab}
@@ -562,7 +572,7 @@ export function App() {
                 ) : <p className="field-help">正在加载本机样式组合。</p>}
               </div>
             ) : null}
-            {settingsTab === 'page' ? (
+            {settingsTab === 'page' && !directMode ? (
               <div aria-labelledby="settings-tab-page" id="settings-panel-page" role="tabpanel">
                 {selectedPack ? (
                   <StyleEditor
@@ -586,7 +596,7 @@ export function App() {
         <button
           aria-label={isRendering ? '正在转换' : '生成'}
           className="action-fab generate-fab"
-          disabled={busy || !job || !selectedPack || !sourceMarkdown.trim()}
+          disabled={busy || !selectedPack || (directMode ? !sourceFile : !job || !sourceMarkdown.trim())}
           onClick={handleRender}
           type="button"
         >

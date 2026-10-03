@@ -1,21 +1,20 @@
 # Doc Converter
 
-完全本地运行、无 AI 参与的文档内容规范化转换应用。支持 Markdown、DOCX 和 DOC 输入，统一导入为可编辑 Markdown，再应用确定性规范化、样式模板和 OOXML 收尾生成 DOCX。原始上传文件永不覆盖，文档不上传。
+完全本地运行、无 AI 参与的文档内容规范化转换应用。支持 Markdown、DOCX 和 DOC 输入。DOCX 默认直接规范化为 DOCX；Markdown 和 DOC 经可编辑 Markdown 工作副本生成 DOCX。原始上传文件永不覆盖，文档不上传。
 
 ## 当前能力
 
-- A 方案双栏工作区：左侧可编辑 Markdown 工作副本，右侧内置 DOCX 预览。
-- 支持 `.md`、`.markdown`、`.docx` 和 `.doc` 输入；DOCX 由 Pandoc 导入，DOC 先由 LibreOffice 转成中间 DOCX，再交给 Pandoc 导入。标题、表格和可提取图片进入统一 Markdown 工作副本，之后按所选 Style Pack 重新生成 DOCX。
-- DOC/DOCX 输入执行内容结构转换，不承诺保留源 Word 的完整版式；原始上传文件和实际生成的导入中间文件分别保存。
+- 双栏工作区：左侧选择文件，右侧预览结果；Markdown 和 DOC 可编辑 Markdown 工作副本，DOCX 直接转换时不显示编辑区。
+- 支持 `.md`、`.markdown`、`.docx` 和 `.doc` 输入。DOCX 默认在原生 OOXML 中映射高置信段落样式，保留表格合并、图片、关系与其他未修改结构；不经过 Markdown，也不调用 Pandoc 导入。DOC 先由 LibreOffice 转成中间 DOCX，再由 Pandoc 导入 Markdown 工作副本。
+- DOCX 直接转换生成 DOCX、分析报告、规范化报告和样式快照。Markdown / DOC 路径生成 DOCX、规范化 Markdown、报告和样式快照。原始上传文件与中间文件分别保存在任务目录。
 - 样式设置默认折叠为右下角悬浮按钮，需要时展开为固定底部面板，并按“样式角色 / 页面设置”分标签管理；“生成”和“下载”作为并列悬浮操作，不必打开设置面板；样式组合支持保存不可变新版本。
 - 内置预览按 A4 纸张显示分页页面，使用已生成的 DOCX 转 PDF 结果，不需要滚动到页面底部才能打开设置。
 - 结构建议是可执行的确定性动作：可将标题区内容应用为文档标题、副标题、摘要、关键词、作者、单位、部门或日期；应用会直接写入 Markdown Front Matter 并从标题区移除原行，不再阻塞生成。
-- 任务产物包括 DOCX、规范化 Markdown、审计报告和样式快照。
 - Pandoc 随 Windows 发布包分发；Docker Compose 使用本地 LibreOffice 生成 PDF 预览，Word/WPS 仍可作为用户显式进行高保真复核的最终打开工具。
 
 ## Round-trip 保留原则
 
-转换以 Pandoc Markdown 的原生能力为第一选择：标题、段落、上下角标、超链接、项目符号、简单表格等直接使用 Pandoc 能读写的 Markdown 表达。只有 Pandoc Markdown 没有对应表达的分页、复杂合并/嵌套表格和 Word 尾注，才使用带明确标记的内部扩展，并在 DOCX 输出阶段恢复为 OOXML 结构。Word 修订内容导入时接受最终版本，避免把修订标记泄漏到工作副本。
+Markdown 和 DOC 的重建路径以 Pandoc Markdown 的原生能力为第一选择：标题、段落、上下角标、超链接、项目符号、简单表格等直接使用 Pandoc 能读写的 Markdown 表达。只有 Pandoc Markdown 没有对应表达的分页、复杂合并/嵌套表格和 Word 尾注，才使用带明确标记的内部扩展，并在 DOCX 输出阶段恢复为 OOXML 结构。Word 修订内容导入时接受最终版本，避免把修订标记泄漏到工作副本。DOCX 默认使用独立直处理路径，不经过本节的重建步骤。
 
 ## Markdown 二次整理
 
@@ -82,7 +81,6 @@ keywords:
 
 ```text
 Markdown ───────────────────────────────────────┐
-DOCX ── Pandoc ─────────────────────────────────┤
 DOC ── LibreOffice → 中间 DOCX → Pandoc ────────┘
   → 统一的可编辑 Markdown 工作副本
   → 确定性规范化与完整性校验
@@ -90,13 +88,16 @@ DOC ── LibreOffice → 中间 DOCX → Pandoc ────────┘
   → Pandoc + 自包含参考 DOCX
   → OOXML 收尾（DC_ 样式、标题区、表格正文、页脚）
   → A4 分页的内置浏览器预览与本地产物下载
+
+DOCX → 只读分析与保守分类 → 原位 OOXML 样式映射
+     → 输出校验与审计报告 → 预览与 DOCX 下载
 ```
 
-当前版本新增了多格式输入适配层，输出仍为 DOCX。后续可在规范化输出旁增加 Markdown、DOC 或其他输出适配器；需要保留原始版式的格式转码可以使用独立转换链路，不必强制经过 Markdown。
+所有网页输入仍输出 DOCX；DOCX 默认走独立的结构保留转换链路。
 
 ## 本地运行
 
-开发环境需要 Python 3.12+、[uv](https://docs.astral.sh/uv/)、Node.js 和 Pandoc。导入 `.doc` 还需要本机安装 LibreOffice；可将 `soffice` 放入 PATH，或通过 `DOC_CONVERTER_LIBREOFFICE` 指定可执行文件。导入 `.docx` 不要求 LibreOffice。
+开发环境需要 Python 3.12+、[uv](https://docs.astral.sh/uv/)、Node.js；Markdown 和 DOC 重建路径需要 Pandoc。DOC 导入及 PDF 预览需要 LibreOffice；可将 `soffice` 放入 PATH，或通过 `DOC_CONVERTER_LIBREOFFICE` 指定可执行文件。DOCX 直接规范化不要求 Pandoc 或 LibreOffice，缺少 LibreOffice 时仍可下载 DOCX 并使用浏览器内预览回退。
 
 ```powershell
 uv sync --group dev

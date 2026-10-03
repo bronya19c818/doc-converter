@@ -46,8 +46,43 @@ describe('App', () => {
     await waitFor(() => expect(preloadDocxPreview).toHaveBeenCalledTimes(1))
   })
 
+  it('runs DOCX direct normalization without a Markdown draft and shows its output', async () => {
+    const pack = { id: 'formal-report', name: '正式报告', format_id: 'docx', version: 1, roles: {} }
+    const readyJob = {
+      id: 'direct-job', status: 'ready', conversion_mode: 'docx-direct', source_name: '合同.docx',
+      source_original_name: '合同.docx', source_format: 'docx', import_warnings: [],
+      style_pack_id: pack.id, style_pack_version: 1, suggestions: [], artifacts: [], error: null,
+      output_name: null, draft_updated_at: null, source_hash: '', render_revision: 0, preview_ready: false,
+    }
+    const completedJob = {
+      ...readyJob, status: 'completed', output_name: '合同_规范化.docx', render_revision: 1,
+      artifacts: ['合同_规范化.docx', 'docx-normalization-report.json'],
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => [pack] })
+      .mockResolvedValueOnce({ ok: true, json: async () => readyJob })
+      .mockResolvedValueOnce({ ok: true, json: async () => completedJob })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<App />)
+
+    const file = new File([new Uint8Array([0, 1, 2, 3])], '合同.docx')
+    fireEvent.change(await screen.findByLabelText('选择文件'), { target: { files: [file] } })
+    expect(screen.queryByLabelText('内容工作区')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '打开设置' }))
+    expect(screen.queryByRole('tab', { name: '页面设置' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '收起设置' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '生成' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: '生成' }))
+    await waitFor(() => expect(fetchMock.mock.calls).toHaveLength(3))
+    expect(fetchMock.mock.calls[1][1].body).toBeInstanceOf(FormData)
+    expect((fetchMock.mock.calls[1][1].body as FormData).get('conversion_mode')).toBe('docx-direct')
+    await waitFor(() => expect(screen.getByTestId('docx-preview')).toHaveTextContent('%E5%90%88%E5%90%8C_%E8%A7%84%E8%8C%83%E5%8C%96.docx'))
+    expect(String(fetchMock.mock.calls[2][0])).toBe('/api/jobs/direct-job/normalize-docx-direct')
+    fireEvent.click(screen.getByRole('button', { name: '下载' }))
+    expect(screen.getByRole('link', { name: '下载 DOCX' })).toHaveAttribute('href', '/api/jobs/direct-job/artifacts/%E5%90%88%E5%90%8C_%E8%A7%84%E8%8C%83%E5%8C%96.docx')
+  })
+
   it.each([
-    { format: 'DOCX', filename: '合同.docx', sourceFormat: 'docx' },
     { format: 'DOC', filename: '合同.doc', sourceFormat: 'doc' },
   ])('loads $format content from the backend without reading the binary file as text', async ({ filename, sourceFormat }) => {
     const pack = { id: 'formal-report', name: '正式报告', format_id: 'docx', version: 1, roles: {} }

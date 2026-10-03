@@ -21,6 +21,9 @@ artifacts/
 .release-assets/
 release/
 
+# Local Codex project instructions
+AGENTS.md
+
 # IDE and operating-system files
 .vscode/
 .idea/

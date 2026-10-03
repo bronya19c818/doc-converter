@@ -20,6 +20,7 @@ export type Job = {
   status: string
   source_name: string
   source_format: string
+  conversion_mode?: 'round-trip' | 'docx-direct'
   source_original_name: string
   import_warnings: string[]
   style_pack_id: string
@@ -82,12 +83,21 @@ export function reviseStylePack(
   })
 }
 
-export function createJob(file: File, stylePack: StylePack): Promise<Job> {
+export function createJob(file: File, stylePack: StylePack, conversionMode: 'round-trip' | 'docx-direct' = 'round-trip'): Promise<Job> {
   const formData = new FormData()
   formData.append('source', file)
   formData.append('style_pack_id', stylePack.id)
   formData.append('style_pack_version', String(stylePack.version))
+  formData.append('conversion_mode', conversionMode)
   return request<Job>('/api/jobs', { method: 'POST', body: formData })
+}
+
+export function normalizeDocxDirect(jobId: string, stylePack: Pick<StylePack, 'id' | 'version'>): Promise<Job> {
+  return request<Job>(`/api/jobs/${jobId}/normalize-docx-direct`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ style_pack_id: stylePack.id, style_pack_version: stylePack.version }),
+  })
 }
 
 export function getJobDraft(jobId: string): Promise<JobDraft> {

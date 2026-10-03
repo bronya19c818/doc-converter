@@ -10,7 +10,7 @@ import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, status
@@ -19,6 +19,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from doc_converter.docx_direct import analyze_docx, normalize_docx_direct
+from doc_converter.docx_direct.audit import AUDIT_FILENAMES
 from doc_converter.filename import safe_docx_filename
 from doc_converter.importers import ImporterError, ImportResult, import_document
 from doc_converter.importers.libreoffice import resolve_libreoffice
@@ -87,6 +89,13 @@ class RenderRequest(BaseModel):
     style_pack_version: int | None = Field(default=None, ge=1)
 
 
+class DirectRenderRequest(BaseModel):
+    """The style-pack version used for a direct DOCX normalization."""
+
+    style_pack_id: str | None = None
+    style_pack_version: int | None = Field(default=None, ge=1)
+
+
 class JobRecord(BaseModel):
     """Persistent state for one local conversion job."""
 
@@ -94,6 +103,7 @@ class JobRecord(BaseModel):
     status: str
     source_name: str
     source_format: str = "markdown"
+    conversion_mode: Literal["round-trip", "docx-direct"] = "round-trip"
     source_original_name: str = ""
     import_warnings: list[str] = Field(default_factory=list)
     style_pack_id: str
@@ -177,6 +187,24 @@ class JobStore:
         }
         (job_directory / "import-report.json").write_text(
             json.dumps(import_report, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        self.save(job)
+        return job
+
+    def create_direct(
+        self, *, job_id: str, source_name: str, style_pack_id: str, style_pack_version: int
+    ) -> JobRecord:
+        """Register a DOCX job that uses its original upload without importing Markdown."""
+        job = JobRecord(
+            id=job_id,
+            status="ready",
+            source_name=source_name,
+            source_format="docx",
+            conversion_mode="docx-direct",
+            source_original_name=source_name,
+            style_pack_id=style_pack_id,
+            style_pack_version=style_pack_version,
+            created_at=datetime.now(timezone.utc),
         )
         self.save(job)
         return job
@@ -269,13 +297,18 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
         source: UploadFile = File(...),
         style_pack_id: str = Form(...),
         style_pack_version: int = Form(...),
+        conversion_mode: Literal["round-trip", "docx-direct"] | None = Form(None),
     ) -> JobRecord:
         source_name = _safe_upload_name(source.filename)
-        if Path(source_name).suffix.lower() not in {".md", ".markdown", ".docx", ".doc"}:
+        source_suffix = Path(source_name).suffix.lower()
+        if source_suffix not in {".md", ".markdown", ".docx", ".doc"}:
             raise HTTPException(
                 status_code=422,
                 detail="当前支持 .md、.markdown、.docx 和 .doc 文件。",
             )
+        effective_mode = conversion_mode or ("docx-direct" if source_suffix == ".docx" else "round-trip")
+        if effective_mode == "docx-direct" and source_suffix != ".docx":
+            raise HTTPException(status_code=422, detail="DOCX 直接规范化仅支持 .docx 文件。")
         try:
             style_library.get(style_pack_id, style_pack_version)
         except FileNotFoundError as error:
@@ -285,6 +318,18 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
             source_name=source_name,
             source_bytes=source.file.read(),
         )
+        if effective_mode == "docx-direct":
+            try:
+                analyze_docx(original_path)
+            except ValueError as error:
+                job_store.discard_staged_upload(job_id)
+                raise HTTPException(status_code=422, detail=str(error)) from error
+            return job_store.create_direct(
+                job_id=job_id,
+                source_name=source_name,
+                style_pack_id=style_pack_id,
+                style_pack_version=style_pack_version,
+            )
         try:
             imported = import_document(original_path, job_directory=job_store.path_for(job_id))
         except ImporterError as error:
@@ -308,6 +353,8 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
     @app.get("/api/jobs/{job_id}/draft")
     def get_draft(job_id: str) -> DraftResponse:
         job = _get_job_or_404(job_store, job_id)
+        if job.conversion_mode == "docx-direct":
+            raise HTTPException(status_code=404, detail="直接规范化任务没有 Markdown 工作副本。")
         try:
             markdown = job_store.read_draft(job.id)
         except FileNotFoundError as error:
@@ -321,6 +368,8 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
     @app.put("/api/jobs/{job_id}/draft")
     def save_draft(job_id: str, request: DraftRequest) -> JobRecord:
         job = _get_job_or_404(job_store, job_id)
+        if job.conversion_mode == "docx-direct":
+            raise HTTPException(status_code=409, detail="直接规范化任务不能修改 Markdown 工作副本。")
         updated = job.model_copy(
             update={
                 "status": "ready",
@@ -338,6 +387,8 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
     @app.post("/api/jobs/{job_id}/normalize-and-render")
     def normalize_and_render(job_id: str, request: RenderRequest) -> JobRecord:
         job = _get_job_or_404(job_store, job_id)
+        if job.conversion_mode == "docx-direct":
+            raise HTTPException(status_code=409, detail="请使用 DOCX 直接规范化接口。")
         job_directory = job_store.path_for(job.id)
         confirmed_roles = {int(line): role for line, role in request.confirmed_roles.items()}
         try:
@@ -411,6 +462,50 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
             job_store.save(completed)
             return completed
         except (RendererError, ValueError) as error:
+            failed = job.model_copy(update={"status": "failed", "error": str(error)})
+            job_store.save(failed)
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post("/api/jobs/{job_id}/normalize-docx-direct")
+    def normalize_docx_direct_job(job_id: str, request: DirectRenderRequest) -> JobRecord:
+        job = _get_job_or_404(job_store, job_id)
+        if job.conversion_mode != "docx-direct":
+            raise HTTPException(status_code=409, detail="该任务未选择 DOCX 直接规范化。")
+        style_pack_id = request.style_pack_id or job.style_pack_id
+        style_pack_version = request.style_pack_version or job.style_pack_version
+        try:
+            style_pack = style_library.get(style_pack_id, style_pack_version)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail="未找到当前样式组合版本。") from error
+
+        job_directory = job_store.path_for(job.id)
+        output_name = safe_docx_filename(f"{Path(job.source_name).stem}_规范化", job.source_name)
+        output_path = job_directory / output_name
+        try:
+            normalize_docx_direct(
+                job_directory / "source" / "original.docx",
+                style_pack,
+                output_path,
+                audit_dir=job_directory,
+            )
+            render_revision = job.render_revision + 1
+            preview_path = job_directory / "preview" / f"document-{render_revision}.pdf"
+            preview_ready = _convert_docx_to_pdf(output_path, preview_path) and preview_path.is_file()
+            completed = job.model_copy(
+                update={
+                    "status": "completed",
+                    "artifacts": [output_name, *AUDIT_FILENAMES],
+                    "error": None,
+                    "output_name": output_name,
+                    "style_pack_id": style_pack_id,
+                    "style_pack_version": style_pack_version,
+                    "render_revision": render_revision,
+                    "preview_ready": preview_ready,
+                }
+            )
+            job_store.save(completed)
+            return completed
+        except (OSError, ValueError) as error:
             failed = job.model_copy(update={"status": "failed", "error": str(error)})
             job_store.save(failed)
             raise HTTPException(status_code=422, detail=str(error)) from error

@@ -5,12 +5,16 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from doc_converter.docx_direct.features import extract_document_features
 from doc_converter.docx_direct.model import (
     Action,
+    ClassificationDecision,
     DocumentAnalysis,
     DocumentRegion,
     ElementAnalysis,
 )
+from doc_converter.docx_direct.resolver import resolve_candidates
+from doc_converter.docx_direct.scoring import ScoringConfig, decide, score_roles
 
 SUPPORTED_ROLES = frozenset(
     {
@@ -49,6 +53,9 @@ _NUMBERED_PREFIXES = (
 )
 _TERMINAL_BODY_PUNCTUATION = "。；：，、？！.!?,;:"
 _CAPTION_PATTERN = re.compile(r"^\s*([表图])\s*(?:[一二三四五六七八九十百\d]+)")
+_CAPTION_CREDIT_PATTERN = re.compile(
+    r"^制(?P<kind>[图表])人\s*[:：][^\r\n]{0,60}?时间\s*[:：][^\r\n]{0,30}$"
+)
 _AUTHOR_LABEL_PATTERN = re.compile(r"^\s*(作者|编制|编写)\s*[:：]\s*(\S.{0,39})\s*$")
 _ORGANIZATION_LABEL_PATTERN = re.compile(
     r"^\s*(单位|部门|编制单位)\s*[:：]\s*(\S.{0,79})\s*$"
@@ -79,7 +86,33 @@ def action_for_confidence(role: str, confidence: float) -> Action:
     return "preserved"
 
 
-def classify_document(analysis: DocumentAnalysis) -> DocumentAnalysis:
+def classify_document(
+    analysis: DocumentAnalysis, *, scoring_config: ScoringConfig | None = None,
+) -> DocumentAnalysis:
+    """Keep legacy output decisions and attach independent shadow recognition."""
+
+    config = scoring_config or ScoringConfig()
+    # Extract from analyzer evidence, never from legacy's role/region decisions.
+    features, baselines = extract_document_features(analysis)
+    candidates = [score_roles(f, config) for f in features]
+    baselines.update(resolve_candidates(features, candidates, config))
+    legacy = classify_document_legacy(analysis)
+    for element, facts, roles in zip(legacy.elements, features, candidates, strict=True):
+        element.features = facts
+        element.candidates = roles
+        element.legacy_decision = ClassificationDecision(
+            role=element.role, confidence=element.confidence, action=element.action,
+            reasons=list(element.reasons),
+        )
+        element.scored_decision = decide(roles, config)
+    return legacy.model_copy(update={
+        "classification_mode": "legacy-with-shadow",
+        "document_baselines": baselines,
+        "scoring_config": config.model_dump(mode="json"),
+    })
+
+
+def classify_document_legacy(analysis: DocumentAnalysis) -> DocumentAnalysis:
     """Return a classified copy of an analysis without touching the source DOCX."""
 
     elements = [element.model_copy(deep=True) for element in analysis.elements]
@@ -152,7 +185,33 @@ def classify_document(analysis: DocumentAnalysis) -> DocumentAnalysis:
             continue
         classified.append(_decision(element, "body-paragraph", 0.93, "普通非空正文段落"))
 
+    _classify_caption_credits(classified)
     return analysis.model_copy(update={"elements": classified})
+
+
+def _classify_caption_credits(elements: list[ElementAnalysis]) -> None:
+    """Give a caption's adjacent creator/date line the same paragraph role."""
+
+    for index in range(1, len(elements)):
+        caption = elements[index - 1]
+        credit = elements[index]
+        if caption.role not in {"figure-caption", "table-caption"} or caption.action != "mapped":
+            continue
+        if credit.table_context is not None or credit.numbering_properties.get("num_id"):
+            continue
+        match = _CAPTION_CREDIT_PATTERN.fullmatch(credit.text.strip())
+        if match is None:
+            continue
+        role = "figure-caption" if match.group("kind") == "图" else "table-caption"
+        if caption.role != role:
+            continue
+        elements[index] = _decision(
+            credit,
+            role,
+            0.98,
+            "紧邻图表标题的制图人或制表人及时间说明",
+            signals={"caption_credit": True},
+        )
 
 
 def _decision(

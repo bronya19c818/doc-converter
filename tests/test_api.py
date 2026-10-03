@@ -75,7 +75,7 @@ def test_api_imports_docx_media_and_returns_backend_working_copy(tmp_path, monke
 
     created = client.post(
         "/api/jobs",
-        data={"style_pack_id": pack["id"], "style_pack_version": str(pack["version"])},
+        data={"style_pack_id": pack["id"], "style_pack_version": str(pack["version"]), "conversion_mode": "round-trip"},
         files={"source": ("中文材料.docx", source_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
     )
 
@@ -125,7 +125,70 @@ def test_api_rejects_invalid_docx_upload_with_422(tmp_path) -> None:
     )
 
     assert response.status_code == 422
-    assert "有效的 Office Open XML" in response.json()["detail"]
+    assert "DOCX ZIP" in response.json()["detail"]
+
+
+def test_api_direct_docx_job_preserves_source_and_exposes_audit(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(api_module, "_convert_docx_to_pdf", lambda _source, _output: False)
+    client = TestClient(create_app(data_root=tmp_path))
+    pack = client.post("/api/style-packs", json={"name": "直接规范化", "format_id": "docx"}).json()
+    document = Document(BytesIO(_make_docx_bytes("原始标题", image_color=(20, 120, 80))))
+    table = document.add_table(rows=3, cols=3)
+    table.cell(0, 0).merge(table.cell(0, 1)).text = "横向合并"
+    table.cell(1, 0).merge(table.cell(2, 0)).text = "纵向合并"
+    source_buffer = BytesIO()
+    document.save(source_buffer)
+    source_bytes = source_buffer.getvalue()
+
+    created = client.post(
+        "/api/jobs",
+        data={"style_pack_id": pack["id"], "style_pack_version": str(pack["version"])},
+        files={"source": ("原始材料.docx", source_bytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+    )
+    assert created.status_code == 201, created.text
+    job = created.json()
+    assert job["conversion_mode"] == "docx-direct"
+    assert job["status"] == "ready"
+    job_directory = tmp_path / "jobs" / job["id"]
+    assert not (job_directory / "source" / "imported.md").exists()
+    assert client.get(f"/api/jobs/{job['id']}/draft").status_code == 404
+
+    rendered = client.post(
+        f"/api/jobs/{job['id']}/normalize-docx-direct",
+        json={"style_pack_id": pack["id"], "style_pack_version": pack["version"]},
+    )
+    assert rendered.status_code == 200, rendered.text
+    completed = rendered.json()
+    assert completed["status"] == "completed"
+    assert completed["output_name"] == "原始材料_规范化.docx"
+    assert completed["render_revision"] == 1
+    assert set(completed["artifacts"]) == {
+        "原始材料_规范化.docx", "docx-analysis.json", "docx-normalization-report.json", "style-pack.snapshot.json"
+    }
+    assert (job_directory / "source" / "original.docx").read_bytes() == source_bytes
+    output = client.get(f"/api/jobs/{job['id']}/artifacts/{completed['output_name']}")
+    assert output.status_code == 200
+    assert len(Document(BytesIO(output.content)).inline_shapes) == 1
+    output_table = Document(BytesIO(output.content)).tables[1]
+    source_table = Document(BytesIO(source_bytes)).tables[1]
+    assert len(output_table._tbl.xpath(".//w:gridSpan")) == len(source_table._tbl.xpath(".//w:gridSpan")) == 1
+    assert len(output_table._tbl.xpath(".//w:vMerge")) == len(source_table._tbl.xpath(".//w:vMerge")) == 2
+    assert [len(row._tr.xpath("./w:tc")) for row in output_table.rows] == [
+        len(row._tr.xpath("./w:tc")) for row in source_table.rows
+    ]
+    assert client.get(f"/api/jobs/{job['id']}/artifacts/docx-normalization-report.json").status_code == 200
+    assert client.post(f"/api/jobs/{job['id']}/normalize-and-render", json={"confirmed_roles": {}}).status_code == 409
+
+
+def test_api_rejects_invalid_direct_mode_and_non_docx_source(tmp_path) -> None:
+    client = TestClient(create_app(data_root=tmp_path))
+    pack = client.post("/api/style-packs", json={"name": "模式限制", "format_id": "docx"}).json()
+    fields = {"style_pack_id": pack["id"], "style_pack_version": str(pack["version"]), "conversion_mode": "docx-direct"}
+    wrong_source = client.post("/api/jobs", data=fields, files={"source": ("plain.md", "# 标题", "text/markdown")})
+    invalid_docx = client.post("/api/jobs", data=fields, files={"source": ("bad.docx", b"bad zip", "application/octet-stream")})
+    assert wrong_source.status_code == 422
+    assert invalid_docx.status_code == 422
+    assert list((tmp_path / "jobs").iterdir()) == []
 
 
 def test_docx_assets_are_isolated_between_jobs(tmp_path) -> None:
@@ -136,7 +199,7 @@ def test_docx_assets_are_isolated_between_jobs(tmp_path) -> None:
     for title, color in (("红色图片", (240, 10, 10)), ("蓝色图片", (10, 10, 240))):
         response = client.post(
             "/api/jobs",
-            data={"style_pack_id": pack["id"], "style_pack_version": str(pack["version"])},
+            data={"style_pack_id": pack["id"], "style_pack_version": str(pack["version"]), "conversion_mode": "round-trip"},
             files={"source": (f"{title}.docx", _make_docx_bytes(title, image_color=color), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
         )
         assert response.status_code == 201, response.text

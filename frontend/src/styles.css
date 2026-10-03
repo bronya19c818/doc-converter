@@ -36,6 +36,7 @@ button { cursor: pointer; }
 .file-name { color: #637996; flex: 1; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .field-help { color: #788aa2; font-size: 12px; line-height: 1.55; margin: 7px 0 0; }
 .source-help { margin: 7px 0 19px; }
+.direct-mode-help { background: #f4faf9; border: 1px solid #dcece7; border-radius: 10px; color: #416779; font-size: 14px; line-height: 1.7; margin: 0 0 18px; padding: 18px; }
 .editor-label-row { align-items: center; display: flex; justify-content: space-between; margin: 0 0 8px; }
 .editor-label { align-items: center; color: #1c3a55; display: inline-flex; font-size: 16px; font-weight: 700; gap: 9px; }
 .editor-label svg { color: #1d3e5b; }

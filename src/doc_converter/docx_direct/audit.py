@@ -48,6 +48,8 @@ def build_normalization_records(analysis: DocumentAnalysis) -> list[Normalizatio
                 action=element.action,
                 target_style=target_style,
                 reasons=element.reasons or ["未匹配到可安全修改的规则，保留原样"],
+                legacy_decision=element.legacy_decision,
+                scored_decision=element.scored_decision,
             )
         )
     return records
@@ -75,6 +77,19 @@ def write_audit_bundle(
     if patch_report.get("mapped_count", 0):
         modified_parts.append("word/document.xml")
     report = {
+        "classification_mode": analysis.classification_mode,
+        "scoring_config": analysis.scoring_config,
+        "shadow_comparison": {
+            "compared": sum(e.scored_decision is not None for e in analysis.elements),
+            "role_disagreements": sum(
+                e.scored_decision is not None and e.scored_decision.role != e.role
+                for e in analysis.elements
+            ),
+            "action_disagreements": sum(
+                e.scored_decision is not None and e.scored_decision.action != e.action
+                for e in analysis.elements
+            ),
+        },
         "source_sha256": source_sha256,
         "output_sha256": output_sha256,
         "source_unchanged": source_unchanged,

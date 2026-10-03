@@ -11,6 +11,35 @@ Action = Literal["mapped", "uncertain", "preserved"]
 DocumentRegion = Literal["preface", "body", "postface"]
 
 
+class ScoreEvidence(BaseModel):
+    """One additive contribution, including its raw/context origin."""
+
+    feature: str
+    contribution: float
+    reason: str
+    stage: Literal["raw", "context"] = "raw"
+
+
+class RoleCandidate(BaseModel):
+    role: str
+    raw_score: float = 0
+    resolved_score: float = 0
+    evidence: list[ScoreEvidence] = Field(default_factory=list)
+
+
+class ClassificationDecision(BaseModel):
+    role: str
+    confidence: float = Field(ge=0, le=1)
+    action: Action
+    reasons: list[str] = Field(default_factory=list)
+    score: float | None = None
+    margin: float | None = None
+    top_role: str | None = None
+    runner_up_role: str | None = None
+    runner_up_score: float | None = None
+    confidence_band: Literal["high", "medium", "low"] | None = None
+
+
 class ElementAnalysis(BaseModel):
     """Read-only evidence and classification for one document paragraph."""
 
@@ -37,6 +66,10 @@ class ElementAnalysis(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     action: Action = "preserved"
     reasons: list[str] = Field(default_factory=list)
+    features: dict[str, Any] = Field(default_factory=dict)
+    candidates: list[RoleCandidate] = Field(default_factory=list)
+    legacy_decision: ClassificationDecision | None = None
+    scored_decision: ClassificationDecision | None = None
 
 
 class DocumentAnalysis(BaseModel):
@@ -46,6 +79,9 @@ class DocumentAnalysis(BaseModel):
     elements: list[ElementAnalysis] = Field(default_factory=list)
     package_entries: list[str] = Field(default_factory=list)
     main_document_stats: dict[str, int] = Field(default_factory=dict)
+    classification_mode: str = "unclassified"
+    document_baselines: dict[str, Any] = Field(default_factory=dict)
+    scoring_config: dict[str, Any] = Field(default_factory=dict)
 
 
 class NormalizationRecord(BaseModel):
@@ -60,6 +96,8 @@ class NormalizationRecord(BaseModel):
     action: Action
     target_style: str | None = None
     reasons: list[str] = Field(default_factory=list)
+    legacy_decision: ClassificationDecision | None = None
+    scored_decision: ClassificationDecision | None = None
 
 
 class DirectNormalizeResult(BaseModel):

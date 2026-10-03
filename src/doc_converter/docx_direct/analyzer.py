@@ -84,7 +84,6 @@ def analyze_docx(source_path: Path) -> DocumentAnalysis:
             )
         )
 
-    _assign_initial_regions(elements)
     return DocumentAnalysis(
         source_sha256=source_sha256,
         elements=elements,
@@ -261,33 +260,3 @@ def _run_properties(run: Any) -> dict[str, Any]:
         if node is not None:
             values[key] = {str(attribute): value for attribute, value in node.attrib.items()}
     return values
-
-
-def _assign_initial_regions(elements: list[ElementAnalysis]) -> None:
-    body_started = False
-    postface_started = False
-    for element in elements:
-        stripped = element.text.strip()
-        style_name = (element.original_style_name or "").lower()
-        if _is_reference_boundary(stripped):
-            postface_started = True
-        if postface_started:
-            element.region = "postface"
-        elif body_started:
-            element.region = "body"
-        elif style_name.startswith("heading") or _looks_like_numbered_heading(stripped):
-            body_started = True
-            element.region = "body"
-        else:
-            element.region = "preface"
-
-
-def _is_reference_boundary(text: str) -> bool:
-    normalized = text.strip().lower().rstrip("：:")
-    return normalized in {"参考文献", "参考资料", "references"}
-
-
-def _looks_like_numbered_heading(text: str) -> bool:
-    if not text or len(text) > 35:
-        return False
-    return text.startswith(("一、", "（一）", "1.", "1、", "1.1", "（1）", "①", "第"))
