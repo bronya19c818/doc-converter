@@ -15,7 +15,7 @@
 
 `scored_decision` 保留第一候选 `top_role / score`、第二候选 `runner_up_role / runner_up_score`、`margin`、最终 `role / confidence / confidence_band / action / reasons`。证据不足或分差小于歧义阈值时最终角色可以是 unknown，第一候选仍可追溯。
 
-`docx-normalization-report.json` 保留原有输出记录，同时增加每段的 legacy/scored 对比与全文分歧计数。原有 mapped/uncertain/preserved 统计继续描述实际 legacy 输出，不能当作新评分统计。
+`docx-normalization-report.json` 保留原有输出记录，同时增加每段的 legacy/scored 对比与全文分歧计数。原有 mapped/uncertain/preserved 统计继续描述 legacy 决策，不能当作新评分统计；第二阶段策略的实际执行情况见 `xml_patch` 与逐段转换审计。
 
 ## 调整阈值
 
@@ -46,4 +46,4 @@ result = classify_document(analysis, scoring_config=ScoringConfig(
 
 每次使用新的输出目录。脚本通过真实应用 API 执行上传、Direct 转换和产物下载，保存源文件、产物、审计和 `verification.json`；逐个比较 DOCX ZIP 部件 SHA256，而非易受 ZIP 时间戳影响的整包字节。默认通过缺失预览引擎的受支持配置跳过 PDF 预览，添加 `--with-preview` 可启用本地预览。
 
-覆盖文前五类角色、原生六级标题、中文与数字编号、正文竞争、表格、题注、参考文献、自定义样式、局部大字号粗体、异常跳级，左对齐大字号题名、无标题短语、单一家族手工操作清单，以及项目原有压力文档。脚本不接入新格式策略，也不修改原始输入。
+覆盖文前五类角色、原生六级标题、中文与数字编号、正文竞争、表格、题注、参考文献、自定义样式、局部大字号粗体、异常跳级，左对齐大字号题名、无标题短语、单一家族手工操作清单，以及项目原有压力文档。脚本不修改原始输入，默认仍严格比较输出；第二阶段可显式使用 `--policy-output --shadow-reference <第一阶段已验证目录>`，允许视觉格式变化并继续核对识别和结构，详见 [转换策略](docx-transformation-policy.md)。

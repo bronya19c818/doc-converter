@@ -36,6 +36,7 @@ def sha256_file(path: Path) -> str:
 def build_normalization_records(analysis: DocumentAnalysis) -> list[NormalizationRecord]:
     records: list[NormalizationRecord] = []
     for element in analysis.elements:
+        transformation = element.transformation
         target_style = ROLE_TO_STYLE_ID.get(element.role) if element.action == "mapped" else None
         records.append(
             NormalizationRecord(
@@ -50,6 +51,12 @@ def build_normalization_records(analysis: DocumentAnalysis) -> list[Normalizatio
                 reasons=element.reasons or ["未匹配到可安全修改的规则，保留原样"],
                 legacy_decision=element.legacy_decision,
                 scored_decision=element.scored_decision,
+                policy_name=transformation.policy_name if transformation else None,
+                policy_family=transformation.policy_family if transformation else None,
+                transform_safety=transformation.transform_safety if transformation else None,
+                removed_properties=transformation.removed_properties if transformation else [],
+                preserved_properties=transformation.preserved_properties if transformation else [],
+                skipped_properties=transformation.skipped_properties if transformation else [],
             )
         )
     return records
@@ -72,13 +79,14 @@ def write_audit_bundle(
 
     counts = Counter(record.action for record in records)
     modified_parts: list[str] = []
-    if style_report.get("inserted_count", 0):
+    if style_report.get("inserted_count", 0) or patch_report.get("projected_character_styles"):
         modified_parts.append("word/styles.xml")
     if patch_report.get("mapped_count", 0):
         modified_parts.append("word/document.xml")
     report = {
         "classification_mode": analysis.classification_mode,
         "scoring_config": analysis.scoring_config,
+        "transformation_policy_counts": patch_report.get("policy_counts", {}),
         "shadow_comparison": {
             "compared": sum(e.scored_decision is not None for e in analysis.elements),
             "role_disagreements": sum(

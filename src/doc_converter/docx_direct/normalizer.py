@@ -18,7 +18,7 @@ from doc_converter.docx_direct.classifier import classify_document
 from doc_converter.docx_direct.model import DirectNormalizeResult
 from doc_converter.docx_direct.ooxml_patch import read_zip_member, write_zip_copy
 from doc_converter.docx_direct.style_injector import inject_styles_into_docx
-from doc_converter.docx_direct.style_mapper import patch_document_xml
+from doc_converter.docx_direct.style_mapper import patch_document_parts
 from doc_converter.style_library import StylePack
 
 
@@ -49,7 +49,7 @@ def normalize_docx_direct(
 
         style_report = inject_styles_into_docx(source, style_pack, staged_styles)
         before_document = read_zip_member(staged_styles, "word/document.xml")
-        patched_document, patch_report = patch_document_xml(
+        replacements, patch_report = patch_document_parts(
             before_document,
             analysis,
             styles_payload=read_zip_member(staged_styles, "word/styles.xml"),
@@ -57,7 +57,7 @@ def normalize_docx_direct(
         write_zip_copy(
             staged_styles,
             staged_output,
-            {"word/document.xml": patched_document},
+            replacements,
         )
         _validate_output_docx(staged_output)
         if sha256_file(source) != source_sha256:

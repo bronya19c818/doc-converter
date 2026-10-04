@@ -9,6 +9,24 @@ from pydantic import BaseModel, Field
 
 Action = Literal["mapped", "uncertain", "preserved"]
 DocumentRegion = Literal["preface", "body", "postface"]
+TransformSafety = Literal["safe", "guarded", "preserve"]
+
+
+class PropertyDecision(BaseModel):
+    property: str
+    level: Literal["paragraph", "run", "character-style", "structure"]
+    count: int = Field(default=1, ge=1)
+    mode: str
+    reason: str
+
+
+class TransformationAudit(BaseModel):
+    policy_name: str
+    policy_family: str
+    transform_safety: TransformSafety
+    removed_properties: list[PropertyDecision] = Field(default_factory=list)
+    preserved_properties: list[PropertyDecision] = Field(default_factory=list)
+    skipped_properties: list[PropertyDecision] = Field(default_factory=list)
 
 
 class ScoreEvidence(BaseModel):
@@ -70,6 +88,7 @@ class ElementAnalysis(BaseModel):
     candidates: list[RoleCandidate] = Field(default_factory=list)
     legacy_decision: ClassificationDecision | None = None
     scored_decision: ClassificationDecision | None = None
+    transformation: TransformationAudit | None = None
 
 
 class DocumentAnalysis(BaseModel):
@@ -98,6 +117,12 @@ class NormalizationRecord(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     legacy_decision: ClassificationDecision | None = None
     scored_decision: ClassificationDecision | None = None
+    policy_name: str | None = None
+    policy_family: str | None = None
+    transform_safety: TransformSafety | None = None
+    removed_properties: list[PropertyDecision] = Field(default_factory=list)
+    preserved_properties: list[PropertyDecision] = Field(default_factory=list)
+    skipped_properties: list[PropertyDecision] = Field(default_factory=list)
 
 
 class DirectNormalizeResult(BaseModel):
