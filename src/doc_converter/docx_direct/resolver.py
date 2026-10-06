@@ -184,6 +184,36 @@ def resolve_candidates(
                     contribute(c, config, "metadata_before_title", -10,
                                "元数据位于主标题之前，文前顺序证据较弱", context=True)
 
+    for i, (f, roles) in enumerate(zip(features, candidates, strict=True)):
+        neighbors = features[max(0, i - 1):i] + features[i + 1:i + 2]
+        ordinary_phrase = (
+            f["is_body"] and f["short_text"] and f["common_body_style"]
+            and f["table_context"] is None and not f["list"]
+            and not any(f[k] for k in (
+                "native_heading_level", "numbering_family", "caption_pattern",
+                "reference_boundary", "organization_pattern", "explicit_author_label",
+                "explicit_organization_label", "explicit_date", "has_field", "has_drawing",
+                "has_manual_break",
+            ))
+            and len(neighbors) == 2 and all(
+                n["is_body"] and n["body_sentence"] and n["table_context"] is None
+                and not n["list"] for n in neighbors
+            )
+        )
+        organization_cluster = (
+            title_index is not None and title_index < i <= title_index + 4
+            and f["is_preface"] and f["organization_pattern"]
+            and f["table_context"] is None and not f["list"]
+            and any(n["is_preface"] and n["explicit_date"] for n in features[i + 1:i + 3])
+        )
+        for c in roles:
+            if ordinary_phrase and c.role == "body-paragraph":
+                contribute(c, config, "body_phrase_between_sentences", 20,
+                           "正文常见样式短语夹在完整正文句之间，保留正文身份", context=True)
+            if organization_cluster and c.role == "organization-department":
+                contribute(c, config, "organization_title_date_cluster", 20,
+                           "机构名称位于文前题名之后、日期之前，顺序证据相互印证", context=True)
+
     previous_heading = 0
     for f, roles in zip(features, candidates, strict=True):
         if not _safe_heading(f) or not f["is_body"]:

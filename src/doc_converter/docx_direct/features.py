@@ -21,7 +21,7 @@ DATE_PATTERN = re.compile(
     r"|[二〇零一二三四五六七八九十百]+年[一二三四五六七八九十百]+月)$"
 )
 CAPTION_PATTERN = re.compile(r"^(表|图|Table|Figure)\s*[一二三四五六七八九十百\d]+", re.I)
-ORGANIZATION_PATTERN = re.compile(r"(?:公司|部门|中心|研究院|大学|学院)$")
+ORGANIZATION_PATTERN = re.compile(r"(?:公司|部门|中心|研究院|大学|学院|公司.{0,12}[部处])$")
 PERSON_PATTERN = re.compile(r"^[赵钱孙李周吴郑王冯陈卫蒋沈韩杨朱秦许何吕施张孔曹严华金魏陶姜谢苏潘葛彭鲁韦马方俞任袁柳][\u4e00-\u9fff]{1,3}$")
 REFERENCE_BOUNDARIES = {"参考文献", "参考资料", "references"}
 TERMINAL_PUNCTUATION = "。；：，、？！.!?,;:"
