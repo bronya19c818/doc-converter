@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 Action = Literal["mapped", "uncertain", "preserved"]
 DocumentRegion = Literal["preface", "body", "postface"]
 TransformSafety = Literal["safe", "guarded", "preserve"]
+DecisionMode = Literal["legacy", "shadow", "hybrid", "scored"]
+SelectionSource = Literal["scored", "legacy", "agreement", "preserve"]
 
 
 class PropertyDecision(BaseModel):
@@ -88,6 +90,9 @@ class ElementAnalysis(BaseModel):
     candidates: list[RoleCandidate] = Field(default_factory=list)
     legacy_decision: ClassificationDecision | None = None
     scored_decision: ClassificationDecision | None = None
+    selected_decision: ClassificationDecision | None = None
+    selection_source: SelectionSource = "preserve"
+    selection_reason: str | None = None
     transformation: TransformationAudit | None = None
 
 
@@ -117,6 +122,9 @@ class NormalizationRecord(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     legacy_decision: ClassificationDecision | None = None
     scored_decision: ClassificationDecision | None = None
+    selected_decision: ClassificationDecision | None = None
+    selection_source: SelectionSource = "preserve"
+    selection_reason: str | None = None
     policy_name: str | None = None
     policy_family: str | None = None
     transform_safety: TransformSafety | None = None

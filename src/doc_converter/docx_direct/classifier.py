@@ -5,10 +5,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from doc_converter.docx_direct.decision_selector import select_decision
 from doc_converter.docx_direct.features import extract_document_features
 from doc_converter.docx_direct.model import (
     Action,
     ClassificationDecision,
+    DecisionMode,
     DocumentAnalysis,
     DocumentRegion,
     ElementAnalysis,
@@ -88,8 +90,9 @@ def action_for_confidence(role: str, confidence: float) -> Action:
 
 def classify_document(
     analysis: DocumentAnalysis, *, scoring_config: ScoringConfig | None = None,
+    decision_mode: DecisionMode = "hybrid",
 ) -> DocumentAnalysis:
-    """Keep legacy output decisions and attach independent shadow recognition."""
+    """Keep legacy evidence and select one independent conversion decision."""
 
     config = scoring_config or ScoringConfig()
     # Extract from analyzer evidence, never from legacy's role/region decisions.
@@ -105,8 +108,11 @@ def classify_document(
             reasons=list(element.reasons),
         )
         element.scored_decision = decide(roles, config)
+        element.selected_decision, element.selection_source, element.selection_reason = (
+            select_decision(element, config, decision_mode)
+        )
     return legacy.model_copy(update={
-        "classification_mode": "legacy-with-shadow",
+        "classification_mode": decision_mode,
         "document_baselines": baselines,
         "scoring_config": config.model_dump(mode="json"),
     })
