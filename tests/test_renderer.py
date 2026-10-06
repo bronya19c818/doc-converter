@@ -1,3 +1,4 @@
+import os
 import struct
 import zipfile
 import zlib
@@ -428,7 +429,7 @@ def test_renderer_defaults_image_width_to_body_width_without_upscaling(tmp_path)
 def test_renderer_prefers_bundled_pandoc_when_available(tmp_path) -> None:
     bundled_root = tmp_path / "pandoc"
     bundled_root.mkdir()
-    bundled_executable = bundled_root / "pandoc.exe"
+    bundled_executable = bundled_root / ("pandoc.exe" if os.name == "nt" else "pandoc")
     bundled_executable.write_bytes(b"not-executed-in-this-test")
 
     assert resolve_pandoc(bundled_root=bundled_root) == bundled_executable
