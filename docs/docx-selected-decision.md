@@ -57,3 +57,5 @@ uv run python scripts/verify_docx_shadow.py --decision-mode scored --acceptance 
 CI 执行全套 pytest、ruff、mypy、frontend tests/build 与专项验收，即使失败也上传产物。Windows LibreOffice/Poppler 视觉检查保留本地执行；新增 workflow 不代表尚未运行的远程 HEAD 全绿。
 
 本阶段不重建编号、页面、表格、页眉页脚，不删除 legacy，不合并 main。
+
+真实文档发现的作者行与旧式公式误判、后续风险抽查机制见 [语义风险说明](docx-semantic-risks.md)。
