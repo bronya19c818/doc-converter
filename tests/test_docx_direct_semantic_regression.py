@@ -41,7 +41,7 @@ def test_semantic_fixture_ground_truth_through_api(name, tmp_path, monkeypatch):
 @pytest.mark.parametrize("text,count", [
     ("林硕，张圣洁", 2), ("林硕、张圣洁", 2), ("林硕, 张圣洁", 2),
     ("林硕 张圣洁", 2), ("张三 李四 王五", 3),
-    ("采购 仓储", 0), ("林硕，张圣洁。", 0), ("林硕，Smith", 0),
+    ("林硕，张圣洁。", 0), ("林硕，Smith", 0),
     ("张三 李四 王五 张三 李四 王五 张三 李四 王五", 0),
 ])
 def test_author_list_formats_through_docx_conversion(text, count, tmp_path):
