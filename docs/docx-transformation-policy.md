@@ -1,8 +1,8 @@
 # DOCX Direct 转换策略（第二阶段）
 
-实际链路为 `Analyzer → legacy role/action → policy_for_role → 段落与字符策略执行 → DOCX`。`features / candidates / scored_decision` 继续影子运行，仅用于审计，不参与输出策略解析。策略对象不可变，属性模式支持 `replace / preserve / discard / conditional`。
+实际链路为 `Analyzer → Scoring / Resolver → Decision Selector → selected_decision → policy_for_role → 段落与字符策略执行 → DOCX`。选择与发布模式见 [决策选择说明](docx-selected-decision.md)。策略对象不可变，属性模式支持 `replace / preserve / discard / conditional`。
 
-| 策略族 | legacy role | 执行规则 |
+| 策略族 | selected role | 执行规则 |
 | --- | --- | --- |
 | structural-strong | 文档题名、副标题、作者、单位、日期、H1–H6、图表题注、参考文献标题 | 目标角色样式接管段落基础排版，以及普通文字的字体、字号、粗斜体、颜色 |
 | body-mixed | 正文、参考条目 | 统一基础字体、字号和段落排版，保留局部粗斜体、上下标；颜色、下划线、高亮等仅在整段直接覆盖一致且没有语义或受保护文本证据时清除 |
@@ -23,14 +23,14 @@
 
 ## 审计与验证
 
-`docx-normalization-report.json` 每段包含 `policy_name / policy_family / transform_safety` 及 `removed_properties / preserved_properties / skipped_properties`，每项记录层级、数量、模式和原因。字符样式过滤逐项记录字体、字号、粗斜体等属性，数量按每个受影响 run 的继承节点计数，不表示删除原样式定义。`counts` 仍统计 legacy action；`xml_patch.mapped_count / skipped_count` 描述策略的实际执行情况。
+`docx-normalization-report.json` 每段包含 `policy_name / policy_family / transform_safety` 及 `removed_properties / preserved_properties / skipped_properties`，每项记录层级、数量、模式和原因。字符样式过滤逐项记录字体、字号、粗斜体等属性，数量按每个受影响 run 的继承节点计数，不表示删除原样式定义。`classification` 分别统计三套识别；`counts / xml_patch.mapped_count / skipped_count` 描述 selected 的实际执行情况。
 
 新增测试先于对应实现编写，涵盖完整 DOCX 转换、字符样式继承、表格与复杂节点、未知内容原样保留、源样式继承编号/分页及跨段落域结果。可复跑压力验证通过应用 API 上传、转换、下载，并保留 DOCX、审计和 `verification.json`：
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/verify_docx_policy.py --output artifacts/policy-acceptance-new
 # 可用 --source "C:\path\document.docx" 加入真实文档，原文件只读。
-.\.venv\Scripts\python.exe scripts/verify_docx_shadow.py --baseline artifacts/shadow-baseline-20261003d --shadow-reference artifacts/shadow-verified-20261003-final --output artifacts/policy-shadow-new --policy-output --edge-cases
+.\.venv\Scripts\python.exe scripts/verify_docx_shadow.py --decision-mode shadow --baseline artifacts/shadow-baseline-20261003d --shadow-reference artifacts/shadow-verified-20261003-final --output artifacts/policy-shadow-new --policy-output --edge-cases
 .\.venv\Scripts\python.exe -m pytest -q
 .\.venv\Scripts\ruff.exe check .
 .\.venv\Scripts\mypy.exe src

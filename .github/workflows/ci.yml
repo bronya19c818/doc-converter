@@ -1,0 +1,56 @@
+name: Doc Converter CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install local document engines and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc libreoffice-writer fonts-noto-cjk
+          python -m pip install uv
+          uv sync --frozen --group dev
+          npm ci --prefix frontend
+      - name: Backend tests including policy and package preservation
+        run: uv run pytest -q --basetemp=artifacts/pytest --junitxml=artifacts/pytest-results.xml
+      - name: Python lint
+        run: uv run ruff check .
+      - name: Python types
+        run: uv run mypy src
+      - name: Frontend tests
+        run: npm test --prefix frontend
+      - name: Frontend build
+        run: npm run build --prefix frontend
+      - name: Selected decision acceptance and pressure artifacts
+        if: always()
+        run: uv run python scripts/verify_docx_shadow.py --decision-mode hybrid --acceptance --output artifacts/selected-ci
+      - name: Upload repeatable DOCX and audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docx-direct-verification
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 14
