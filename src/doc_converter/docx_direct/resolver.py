@@ -13,7 +13,7 @@ def _safe_heading(f: dict[str, Any]) -> bool:
     return bool(
         f["short_text"] and not f["body_sentence"] and f["table_context"] is None
         and not f["list"]
-        and not any(f[k] for k in ("has_complex_object", "has_manual_break", "author_name_list_pattern",
+        and not any(f[k] for k in ("has_complex_object", "has_manual_break", "author_name_list_shape",
                                   "explicit_author_label", "explicit_organization_label",
                                   "explicit_date", "caption_pattern", "reference_boundary"))
         and (f["native_heading_level"] or f["numbering_family"]
@@ -28,7 +28,7 @@ def _assign_shadow_regions(features: list[dict[str, Any]], config: ScoringConfig
         f["body_started_before"] = body_started
         outside = f["table_context"] is None and not f["list"]
         author_affiliation = (
-            not body_started and index > 0 and features[index - 1]["author_name_list_pattern"]
+            not body_started and index > 0 and features[index - 1]["author_name_list_shape"]
             and f["author_affiliation_pattern"] and not f["has_complex_object"]
         )
         if outside and f["reference_boundary"] and not any(
@@ -45,7 +45,7 @@ def _assign_shadow_regions(features: list[dict[str, Any]], config: ScoringConfig
         )
         plain_boundary = f["text_length"] and f["alignment"] != "center" and not f["native_title_style"] and not leading_large and not author_affiliation and not any(
             f[k] for k in ("explicit_author_label", "explicit_organization_label", "explicit_date",
-                          "person_name_pattern", "author_name_list_pattern", "organization_pattern", "caption_pattern",
+                          "person_name_pattern", "author_name_list_shape", "organization_pattern", "caption_pattern",
                           "reference_boundary", "has_complex_object", "has_manual_break")
         )
         if outside and (_safe_heading(f) or sentence_boundary or plain_boundary):
@@ -171,7 +171,7 @@ def resolve_candidates(
              and f["font_size_to_body_ratio"] >= config.larger_font_ratio)
         and not f["body_sentence"] and not any(f[k] for k in (
             "explicit_author_label", "explicit_organization_label", "explicit_date",
-            "person_name_pattern", "author_name_list_pattern", "organization_pattern", "caption_pattern",
+            "person_name_pattern", "author_name_list_shape", "organization_pattern", "caption_pattern",
             "has_complex_object", "has_manual_break"))
     ]
     title_index: int | None = None
@@ -186,7 +186,7 @@ def resolve_candidates(
             size = f["dominant_font_size_pt"]
             if i <= title_index or not f["is_preface"] or f["table_context"] is not None:
                 continue
-            if any(f[k] for k in ("explicit_author_label", "explicit_organization_label", "explicit_date", "person_name_pattern", "author_name_list_pattern", "organization_pattern")):
+            if any(f[k] for k in ("explicit_author_label", "explicit_organization_label", "explicit_date", "person_name_pattern", "author_name_list_shape", "organization_pattern")):
                 break
             if f["alignment"] != "center" or not f["short_text"] or f["body_sentence"]:
                 continue
@@ -212,7 +212,8 @@ def resolve_candidates(
         for i, (f, roles) in enumerate(zip(features, candidates, strict=True)):
             author_context = (
                 title_index < i <= title_index + 4 and f["is_preface"]
-                and f["author_name_list_pattern"] and f["table_context"] is None and not f["list"]
+                and f["author_name_list_shape"] and f["author_surname_match_count"] > 0
+                and f["table_context"] is None and not f["list"]
                 and not f["has_complex_object"] and not f["has_manual_break"]
                 and _author_followup(features, i)
             )
@@ -220,7 +221,7 @@ def resolve_candidates(
                 continue
             for c in roles:
                 if c.role == "author":
-                    contribute(c, config, "author_list_after_title", 65,
+                    contribute(c, config, "author_list_after_title", 65 if f["author_surname_match_ratio"] == 1 else 30,
                                "姓名列表紧跟题名且后续单位、日期或摘要相互印证", context=True)
                 elif c.role.startswith("heading-"):
                     contribute(c, config, "preface_author_conflict", -120,
@@ -237,7 +238,7 @@ def resolve_candidates(
             and not any(f[k] for k in (
                 "native_heading_level", "numbering_family", "caption_pattern",
                 "reference_boundary", "organization_pattern", "explicit_author_label",
-                "explicit_organization_label", "explicit_date", "has_complex_object", "author_name_list_pattern",
+                "explicit_organization_label", "explicit_date", "has_complex_object", "author_name_list_shape",
                 "has_manual_break",
             ))
             and len(neighbors) == 2 and all(

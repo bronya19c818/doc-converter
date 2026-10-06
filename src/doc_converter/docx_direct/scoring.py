@@ -68,7 +68,9 @@ def score_roles(features: dict[str, Any], config: ScoringConfig) -> list[RoleCan
     near_body = ratio is not None and abs(ratio - 1) <= config.body_font_tolerance
     centered = f["alignment"] == "center"
     early = f["document_order"] < 12
-    metadata = any(f[k] for k in ("explicit_author_label", "explicit_organization_label", "explicit_date", "person_name_pattern", "organization_pattern", "author_name_list_pattern"))
+    metadata = any(f[k] for k in ("explicit_author_label", "explicit_organization_label", "explicit_date", "person_name_pattern", "organization_pattern")) or (
+        f["author_name_list_shape"] and f["table_context"] is None
+    )
     for candidate in candidates:
         role = candidate.role
 
@@ -183,8 +185,9 @@ def score_roles(features: dict[str, Any], config: ScoringConfig) -> list[RoleCan
                 add(label, 75, "明确标签或日期格式提供强证据")
             elif role == "author" and f["person_name_pattern"]:
                 add("person_name_pattern", 35, "纯姓名形式为弱证据")
-            elif role == "author" and f["author_name_list_pattern"]:
-                add("author_name_list_pattern", 45, "多个中文姓名为作者候选，须有题名后上下文印证")
+            elif role == "author" and f["author_name_list_shape"] and f["author_surname_match_count"]:
+                add("author_name_list_pattern", 45 if f["author_surname_match_ratio"] == 1 else 20,
+                    "中文短项列表的姓氏匹配提供候选证据，须有题名后上下文印证")
             elif role == "organization-department" and f["organization_pattern"]:
                 add("organization_pattern", 45, "机构名称后缀为弱证据")
             else:
@@ -214,7 +217,7 @@ def score_roles(features: dict[str, Any], config: ScoringConfig) -> list[RoleCan
             if f["reference_boundary"]:
                 add("reference_is_boundary", -70, "边界标题不是文献条目")
         elif role == "unknown":
-            if f["author_name_list_pattern"]:
+            if f["author_name_list_shape"] and f["table_context"] is None and not f["list"]:
                 add("unconfirmed_author_list", 150, "姓名列表缺少文前上下文时保留，不接受脏 Heading 样式")
             if not f["text_length"]:
                 add("empty_paragraph", 150, "空段落不判定内容角色")

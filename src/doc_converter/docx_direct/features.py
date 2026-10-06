@@ -24,6 +24,15 @@ CAPTION_PATTERN = re.compile(r"^(表|图|Table|Figure)\s*[一二三四五六七�
 ORGANIZATION_PATTERN = re.compile(r"(?:公司|部门|中心|研究院|大学|学院|公司.{0,12}[部处])$")
 PERSON_PATTERN = re.compile(r"^[赵钱孙李周吴郑王冯陈卫蒋沈韩杨朱秦许何吕施张孔曹严华金魏陶姜谢苏潘葛彭鲁韦马方俞任袁柳][\u4e00-\u9fff]{1,3}$")
 AUTHOR_LIST_SEPARATOR = re.compile(r"[ ,，、\u3000]+")
+COMMON_SURNAMES = frozenset(
+    "赵钱孙李周吴郑王冯陈卫蒋沈韩杨朱秦许何吕施张孔曹严华金魏陶姜谢苏潘葛彭鲁韦马方俞任袁柳"
+    "林刘黄郭梁高罗宋唐徐邓萧肖程叶胡蔡董杜丁姚卢傅钟汪田戴夏石廖任邱侯白孟江范尹薛雷龙"
+    "段郝顾毛邵龚万武赖覃洪庞樊殷温莫汤贺贾文游谭廖熊陆郑史尉钱曾易常廖阎崔康伍余于顾"
+)
+COMPOUND_SURNAMES = frozenset({
+    "欧阳", "司马", "上官", "诸葛", "东方", "皇甫", "尉迟", "公孙", "慕容",
+    "司徒", "司空", "夏侯", "令狐", "长孙", "宇文", "端木", "独孤", "南宫",
+})
 ABSTRACT_LABEL = re.compile(r"^(?:摘要|abstract)\s*[:：]", re.I)
 AUTHOR_AFFILIATION = re.compile(
     r"^[\u4e00-\u9fff ]{1,60}(?:公司|大学|学院|研究院|研究所|研究单位|中心)(?:[，,].{0,60})?$"
@@ -66,14 +75,13 @@ def _number(value: Any) -> float | None:
 
 
 def _author_name_count(text: str) -> int:
-    """Bounded Chinese-name list; reuse known surnames plus the common surname 林."""
+    """Count bounded Chinese short items independently of surname evidence."""
     if not 0 < len(text) <= 64:
         return 0
     names = AUTHOR_LIST_SEPARATOR.split(text)
     if not 2 <= len(names) <= 8:
         return 0
-    if all(PERSON_PATTERN.fullmatch(name) or re.fullmatch(r"林[\u4e00-\u9fff]{1,3}", name)
-           for name in names):
+    if all(re.fullmatch(r"[\u4e00-\u9fff]{2,4}", name) for name in names):
         return len(names)
     return 0
 
@@ -92,6 +100,11 @@ def _plain_features(element: ElementAnalysis, index: int, total: int) -> dict[st
     is_list = automatic or (element.original_style_name or "").lower().startswith("list ")
     terminal = bool(text and text[-1] in TERMINAL_PUNCTUATION)
     author_count = _author_name_count(text)
+    surname_count = sum(
+        name[0] in COMMON_SURNAMES
+        or len(name) >= 3 and name[:2] in COMPOUND_SURNAMES
+        for name in AUTHOR_LIST_SEPARATOR.split(text)
+    ) if author_count else 0
     return {
         "text_length": len(text),
         "has_sentence_punctuation": bool(re.search(r"[。；？！.!?;]", text)),
@@ -100,8 +113,11 @@ def _plain_features(element: ElementAnalysis, index: int, total: int) -> dict[st
         "explicit_organization_label": bool(ORGANIZATION_LABEL.fullmatch(text)),
         "explicit_date": bool(DATE_PATTERN.fullmatch(text)),
         "person_name_pattern": bool(PERSON_PATTERN.fullmatch(text)),
-        "author_name_list_pattern": author_count > 0,
+        "author_name_list_pattern": author_count > 0 and surname_count == author_count,
         "author_name_count": author_count,
+        "author_name_list_shape": author_count > 0,
+        "author_surname_match_count": surname_count,
+        "author_surname_match_ratio": surname_count / author_count if author_count else 0.0,
         "abstract_label": bool(ABSTRACT_LABEL.match(text)),
         "author_affiliation_pattern": len(text) <= 100 and bool(AUTHOR_AFFILIATION.fullmatch(text)),
         "organization_pattern": len(text) <= 80 and bool(ORGANIZATION_PATTERN.search(text)),
