@@ -13,7 +13,7 @@ def _safe_heading(f: dict[str, Any]) -> bool:
     return bool(
         f["short_text"] and not f["body_sentence"] and f["table_context"] is None
         and not f["list"]
-        and not any(f[k] for k in ("has_field", "has_drawing", "has_manual_break",
+        and not any(f[k] for k in ("has_complex_object", "has_manual_break", "author_name_list_pattern",
                                   "explicit_author_label", "explicit_organization_label",
                                   "explicit_date", "caption_pattern", "reference_boundary"))
         and (f["native_heading_level"] or f["numbering_family"]
@@ -24,10 +24,15 @@ def _safe_heading(f: dict[str, Any]) -> bool:
 def _assign_shadow_regions(features: list[dict[str, Any]], config: ScoringConfig) -> None:
     body_started = False
     postface_started = False
-    for f in features:
+    for index, f in enumerate(features):
+        f["body_started_before"] = body_started
         outside = f["table_context"] is None and not f["list"]
+        author_affiliation = (
+            not body_started and index > 0 and features[index - 1]["author_name_list_pattern"]
+            and f["author_affiliation_pattern"] and not f["has_complex_object"]
+        )
         if outside and f["reference_boundary"] and not any(
-            f[k] for k in ("has_field", "has_drawing", "has_manual_break")
+            f[k] for k in ("has_complex_object", "has_manual_break")
         ):
             postface_started = True
         sentence_boundary = f["body_sentence"] and not any(
@@ -38,16 +43,35 @@ def _assign_shadow_regions(features: list[dict[str, Any]], config: ScoringConfig
             f["document_order"] < 12 and f["short_text"] and not f["has_terminal_punctuation"]
             and ratio is not None and ratio >= config.larger_font_ratio
         )
-        plain_boundary = f["text_length"] and f["alignment"] != "center" and not f["native_title_style"] and not leading_large and not any(
+        plain_boundary = f["text_length"] and f["alignment"] != "center" and not f["native_title_style"] and not leading_large and not author_affiliation and not any(
             f[k] for k in ("explicit_author_label", "explicit_organization_label", "explicit_date",
-                          "person_name_pattern", "organization_pattern", "caption_pattern",
-                          "reference_boundary", "has_field", "has_drawing", "has_manual_break")
+                          "person_name_pattern", "author_name_list_pattern", "organization_pattern", "caption_pattern",
+                          "reference_boundary", "has_complex_object", "has_manual_break")
         )
         if outside and (_safe_heading(f) or sentence_boundary or plain_boundary):
             body_started = True
         region = "postface" if postface_started else "body" if body_started else "preface"
         f.update(region=region, is_preface=region == "preface",
                  is_body=region == "body", is_postface=region == "postface")
+
+
+def _author_followup(features: list[dict[str, Any]], index: int) -> bool:
+    """Confirm adjacent metadata, never borrow a date from beyond a body boundary."""
+    for f in features[index + 1:index + 4]:
+        if f["table_context"] is not None or f["list"] or any(f[k] for k in (
+            "has_complex_object", "has_manual_break", "reference_boundary", "caption_pattern",
+        )):
+            return False
+        # The abstract may itself start body; no earlier body paragraph may intervene.
+        if not f["is_preface"] and not (f["abstract_label"] and not f["body_started_before"]):
+            return False
+        if any(f[k] for k in ("explicit_organization_label", "organization_pattern",
+                              "author_affiliation_pattern", "explicit_date", "abstract_label")) \
+                or f["native_title_style"] == "subtitle" and f["short_text"] and not f["body_sentence"]:
+            return True
+        if _safe_heading(f) or f["body_sentence"]:
+            return False
+    return False
 
 
 def _numbering_levels(
@@ -147,7 +171,8 @@ def resolve_candidates(
              and f["font_size_to_body_ratio"] >= config.larger_font_ratio)
         and not f["body_sentence"] and not any(f[k] for k in (
             "explicit_author_label", "explicit_organization_label", "explicit_date",
-            "person_name_pattern", "organization_pattern", "caption_pattern"))
+            "person_name_pattern", "author_name_list_pattern", "organization_pattern", "caption_pattern",
+            "has_complex_object", "has_manual_break"))
     ]
     title_index: int | None = None
     if titles:
@@ -161,7 +186,7 @@ def resolve_candidates(
             size = f["dominant_font_size_pt"]
             if i <= title_index or not f["is_preface"] or f["table_context"] is not None:
                 continue
-            if any(f[k] for k in ("explicit_author_label", "explicit_organization_label", "explicit_date", "person_name_pattern", "organization_pattern")):
+            if any(f[k] for k in ("explicit_author_label", "explicit_organization_label", "explicit_date", "person_name_pattern", "author_name_list_pattern", "organization_pattern")):
                 break
             if f["alignment"] != "center" or not f["short_text"] or f["body_sentence"]:
                 continue
@@ -184,6 +209,26 @@ def resolve_candidates(
                     contribute(c, config, "metadata_before_title", -10,
                                "元数据位于主标题之前，文前顺序证据较弱", context=True)
 
+        for i, (f, roles) in enumerate(zip(features, candidates, strict=True)):
+            author_context = (
+                title_index < i <= title_index + 4 and f["is_preface"]
+                and f["author_name_list_pattern"] and f["table_context"] is None and not f["list"]
+                and not f["has_complex_object"] and not f["has_manual_break"]
+                and _author_followup(features, i)
+            )
+            if not author_context:
+                continue
+            for c in roles:
+                if c.role == "author":
+                    contribute(c, config, "author_list_after_title", 65,
+                               "姓名列表紧跟题名且后续单位、日期或摘要相互印证", context=True)
+                elif c.role.startswith("heading-"):
+                    contribute(c, config, "preface_author_conflict", -120,
+                               "文前作者语义与脏原生 Heading 样式冲突", context=True)
+                elif c.role == "unknown":
+                    contribute(c, config, "author_list_context_confirmed", -150,
+                               "文前顺序已印证作者列表，撤销缺上下文的保留倾向", context=True)
+
     for i, (f, roles) in enumerate(zip(features, candidates, strict=True)):
         neighbors = features[max(0, i - 1):i] + features[i + 1:i + 2]
         ordinary_phrase = (
@@ -192,7 +237,7 @@ def resolve_candidates(
             and not any(f[k] for k in (
                 "native_heading_level", "numbering_family", "caption_pattern",
                 "reference_boundary", "organization_pattern", "explicit_author_label",
-                "explicit_organization_label", "explicit_date", "has_field", "has_drawing",
+                "explicit_organization_label", "explicit_date", "has_complex_object", "author_name_list_pattern",
                 "has_manual_break",
             ))
             and len(neighbors) == 2 and all(

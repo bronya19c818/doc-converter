@@ -68,7 +68,7 @@ def score_roles(features: dict[str, Any], config: ScoringConfig) -> list[RoleCan
     near_body = ratio is not None and abs(ratio - 1) <= config.body_font_tolerance
     centered = f["alignment"] == "center"
     early = f["document_order"] < 12
-    metadata = any(f[k] for k in ("explicit_author_label", "explicit_organization_label", "explicit_date", "person_name_pattern", "organization_pattern"))
+    metadata = any(f[k] for k in ("explicit_author_label", "explicit_organization_label", "explicit_date", "person_name_pattern", "organization_pattern", "author_name_list_pattern"))
     for candidate in candidates:
         role = candidate.role
 
@@ -183,6 +183,8 @@ def score_roles(features: dict[str, Any], config: ScoringConfig) -> list[RoleCan
                 add(label, 75, "明确标签或日期格式提供强证据")
             elif role == "author" and f["person_name_pattern"]:
                 add("person_name_pattern", 35, "纯姓名形式为弱证据")
+            elif role == "author" and f["author_name_list_pattern"]:
+                add("author_name_list_pattern", 45, "多个中文姓名为作者候选，须有题名后上下文印证")
             elif role == "organization-department" and f["organization_pattern"]:
                 add("organization_pattern", 45, "机构名称后缀为弱证据")
             else:
@@ -212,14 +214,16 @@ def score_roles(features: dict[str, Any], config: ScoringConfig) -> list[RoleCan
             if f["reference_boundary"]:
                 add("reference_is_boundary", -70, "边界标题不是文献条目")
         elif role == "unknown":
+            if f["author_name_list_pattern"]:
+                add("unconfirmed_author_list", 150, "姓名列表缺少文前上下文时保留，不接受脏 Heading 样式")
             if not f["text_length"]:
                 add("empty_paragraph", 150, "空段落不判定内容角色")
             if f["list"]:
                 add("unsupported_list", 150, "自动列表继续保留")
             if f["custom_style"] and not f["body_sentence"]:
                 add("custom_style_weak_content", 65, "自定义样式且缺少完整正文内容证据")
-            if any(f[k] for k in ("has_field", "has_drawing", "has_manual_break")):
-                add("complex_object", 150, "域、图形或手工换行需保留结构")
+            if f["has_complex_object"] or f["has_manual_break"]:
+                add("complex_object", 150, "域、图形、嵌入对象、数学对象或手工换行需保留结构")
             if not any((f["native_heading_level"], f["numbering_family"], metadata,
                         f["body_sentence"], f["caption_pattern"], f["reference_boundary"])):
                 add("weak_content", 15, "缺少明确语义线索")
@@ -230,8 +234,9 @@ def score_roles(features: dict[str, Any], config: ScoringConfig) -> list[RoleCan
                 add("non_table_role_in_table", -120, "表格上下文与文档级角色冲突")
             if f["list"] and role != "body-paragraph" and not role.startswith("heading-"):
                 add("role_in_list", -100, "自动列表内容保留")
-            if any(f[k] for k in ("has_field", "has_drawing", "has_manual_break")):
-                add("role_complex_object", -100, "复杂对象降低可安全判定程度")
+            if f["has_complex_object"] or f["has_manual_break"]:
+                add("role_complex_object", -200 if f["has_embedded_object"] or f["has_math"] else -100,
+                    "复杂对象降低可安全判定程度；嵌入公式不得由原生标题及编号证据升格")
     return candidates
 
 
