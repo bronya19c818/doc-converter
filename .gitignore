@@ -18,6 +18,7 @@ frontend/tsconfig.tsbuildinfo
 artifacts/
 *.docx
 !tests/fixtures/docx_direct_acceptance/*.docx
+!tests/fixtures/docx_direct_regression/*.docx
 *.pdf
 .release-assets/
 release/

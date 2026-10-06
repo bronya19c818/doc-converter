@@ -1,0 +1,16 @@
+{
+  "author_list_dirty_heading.docx": [
+    {"text": "基于库容指数的物流仓储风险研究", "role": "document-title"},
+    {"text": "林硕，张圣洁", "role": "author"},
+    {"text": "一、研究背景", "role": "heading-1"}
+  ],
+  "complex_numbering.docx": [
+    {"text": "一、正文", "role": "heading-1"},
+    {"text": "1. 基本范围", "role": "heading-2"},
+    {"text": "（1）", "role": "unknown", "action": "preserved"},
+    {"text": "（2）", "role": "unknown", "action": "preserved"},
+    {"text": "（3）", "role": "unknown", "action": "preserved"},
+    {"text": "（4）", "role": "unknown", "action": "preserved"},
+    {"text": "（5）正常三级标题", "role": "heading-3"}
+  ]
+}
