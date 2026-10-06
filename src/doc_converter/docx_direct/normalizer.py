@@ -15,8 +15,9 @@ from doc_converter.docx_direct.audit import (
     write_audit_bundle,
 )
 from doc_converter.docx_direct.classifier import classify_document
-from doc_converter.docx_direct.model import DirectNormalizeResult
+from doc_converter.docx_direct.model import DecisionMode, DirectNormalizeResult
 from doc_converter.docx_direct.ooxml_patch import read_zip_member, write_zip_copy
+from doc_converter.docx_direct.scoring import ScoringConfig
 from doc_converter.docx_direct.style_injector import inject_styles_into_docx
 from doc_converter.docx_direct.style_mapper import patch_document_parts
 from doc_converter.style_library import StylePack
@@ -28,6 +29,8 @@ def normalize_docx_direct(
     output_path: Path,
     *,
     audit_dir: Path | None = None,
+    decision_mode: DecisionMode = "hybrid",
+    scoring_config: ScoringConfig | None = None,
 ) -> DirectNormalizeResult:
     """Normalize a DOCX in a temporary package and commit it atomically."""
 
@@ -43,7 +46,9 @@ def normalize_docx_direct(
         staged_output = temporary_dir / "normalized.docx"
         staged_audit = temporary_dir / "audit"
 
-        analysis = classify_document(analyze_docx(source))
+        analysis = classify_document(
+            analyze_docx(source), decision_mode=decision_mode, scoring_config=scoring_config,
+        )
         if sha256_file(source) != source_sha256:
             raise ValueError("源文件在分析期间发生变化，已取消规范化。")
 

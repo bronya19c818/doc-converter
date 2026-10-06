@@ -37,20 +37,26 @@ def build_normalization_records(analysis: DocumentAnalysis) -> list[Normalizatio
     records: list[NormalizationRecord] = []
     for element in analysis.elements:
         transformation = element.transformation
-        target_style = ROLE_TO_STYLE_ID.get(element.role) if element.action == "mapped" else None
+        decision = element.selected_decision
+        if decision is None:
+            raise ValueError(f"缺少 selected_decision：{element.element_id}")
+        target_style = ROLE_TO_STYLE_ID.get(decision.role) if decision.action == "mapped" else None
         records.append(
             NormalizationRecord(
                 element_id=element.element_id,
                 text=element.text,
                 original_style_id=element.original_style_id,
                 original_style_name=element.original_style_name,
-                detected_role=element.role,
-                confidence=element.confidence,
-                action=element.action,
+                detected_role=decision.role,
+                confidence=decision.confidence,
+                action=decision.action,
                 target_style=target_style,
-                reasons=element.reasons or ["未匹配到可安全修改的规则，保留原样"],
+                reasons=decision.reasons or ["未匹配到可安全修改的规则，保留原样"],
                 legacy_decision=element.legacy_decision,
                 scored_decision=element.scored_decision,
+                selected_decision=decision,
+                selection_source=element.selection_source,
+                selection_reason=element.selection_reason,
                 policy_name=transformation.policy_name if transformation else None,
                 policy_family=transformation.policy_family if transformation else None,
                 transform_safety=transformation.transform_safety if transformation else None,
@@ -77,15 +83,33 @@ def write_audit_bundle(
     audit_dir.mkdir(parents=True, exist_ok=True)
     _write_json(audit_dir / "docx-analysis.json", _analysis_payload(analysis))
 
-    counts = Counter(record.action for record in records)
+    def decision_counts(field: str) -> dict[str, int]:
+        counts = Counter(
+            d.action for e in analysis.elements if (d := getattr(e, field)) is not None
+        )
+        return {action: counts.get(action, 0) for action in ("mapped", "uncertain", "preserved")}
+
+    def disagreements(first: str, second: str) -> int:
+        return sum(
+            (a.role, a.action) != (b.role, b.action)
+            for e in analysis.elements
+            if (a := getattr(e, first)) is not None and (b := getattr(e, second)) is not None
+        )
     modified_parts: list[str] = []
     if style_report.get("inserted_count", 0) or patch_report.get("projected_character_styles"):
         modified_parts.append("word/styles.xml")
-    if patch_report.get("mapped_count", 0):
+    if patch_report.get("document_xml_changed", False):
         modified_parts.append("word/document.xml")
     report = {
         "classification_mode": analysis.classification_mode,
         "scoring_config": analysis.scoring_config,
+        "classification": {
+            "legacy_counts": decision_counts("legacy_decision"),
+            "scored_counts": decision_counts("scored_decision"),
+            "selected_counts": decision_counts("selected_decision"),
+            "legacy_scored_disagreements": disagreements("legacy_decision", "scored_decision"),
+            "scored_selected_disagreements": disagreements("scored_decision", "selected_decision"),
+        },
         "transformation_policy_counts": patch_report.get("policy_counts", {}),
         "shadow_comparison": {
             "compared": sum(e.scored_decision is not None for e in analysis.elements),
@@ -102,9 +126,10 @@ def write_audit_bundle(
         "output_sha256": output_sha256,
         "source_unchanged": source_unchanged,
         "counts": {
-            "mapped": counts.get("mapped", 0),
-            "uncertain": counts.get("uncertain", 0),
-            "preserved": counts.get("preserved", 0),
+            "mapped": patch_report.get("mapped_count", 0),
+            "uncertain": patch_report.get("uncertain_count", 0),
+            "preserved": patch_report.get("preserved_count", 0),
+            "skipped": patch_report.get("skipped_count", 0),
         },
         "modified_xml_parts": modified_parts,
         "style_injection": style_report,

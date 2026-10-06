@@ -9,6 +9,7 @@ from io import BytesIO
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
+import pytest
 from docx import Document
 from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -262,7 +263,7 @@ def assert_package_structures(source: Path, output: Path) -> None:
         )
 
 
-def verify_policy_conversion(folder: Path) -> dict[str, int | bool]:
+def verify_policy_conversion(folder: Path, decision_mode="hybrid") -> dict[str, int | bool]:
     folder.mkdir(parents=True, exist_ok=True)
     source = folder / "source.docx"
     make_policy_fixture(source)
@@ -273,7 +274,7 @@ def verify_policy_conversion(folder: Path) -> dict[str, int | bool]:
     pack.roles["body-table"]["font"]["size_pt"] = 13
     for level in range(1, 7):
         pack.roles[f"heading-{level}"]["font"]["bold"] = True
-    result = normalize_docx_direct(source, pack, output)
+    result = normalize_docx_direct(source, pack, output, decision_mode=decision_mode)
     assert sha256(source.read_bytes()).hexdigest() == source_hash
     assert_package_structures(source, output)
     normalized = Document(output)
@@ -332,8 +333,13 @@ def verify_policy_conversion(folder: Path) -> dict[str, int | bool]:
     )
     assert (
         next(r for r in records if r["text"].startswith("复杂正文"))["transform_safety"]
-        == "guarded"
+        == ("guarded" if decision_mode == "shadow" else "preserve")
     )
+    if decision_mode == "hybrid":
+        roots = [parse_xml(package(p)["word/document.xml"]) for p in (source, output)]
+        assert etree.tostring(paragraph(roots[0], "复杂正文"), method="c14n") == etree.tostring(
+            paragraph(roots[1], "复杂正文"), method="c14n",
+        )
     assert (
         next(r for r in records if r["text"] == "列表内容保持原样")["policy_family"] == "preserve"
     )
@@ -357,8 +363,9 @@ def verify_policy_conversion(folder: Path) -> dict[str, int | bool]:
     return summary
 
 
-def test_full_docx_policy_conversion(tmp_path: Path) -> None:
-    verify_policy_conversion(tmp_path)
+@pytest.mark.parametrize("mode", ["shadow", "hybrid"])
+def test_full_docx_policy_conversion(tmp_path: Path, mode) -> None:
+    verify_policy_conversion(tmp_path, mode)
 
 
 def test_inherited_numbering_and_page_break_survive_style_mapping(tmp_path: Path) -> None:

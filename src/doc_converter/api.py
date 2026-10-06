@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from doc_converter.docx_direct import analyze_docx, normalize_docx_direct
 from doc_converter.docx_direct.audit import AUDIT_FILENAMES
+from doc_converter.docx_direct.model import DecisionMode
 from doc_converter.filename import safe_docx_filename
 from doc_converter.importers import ImporterError, ImportResult, import_document
 from doc_converter.importers.libreoffice import resolve_libreoffice
@@ -94,6 +95,7 @@ class DirectRenderRequest(BaseModel):
 
     style_pack_id: str | None = None
     style_pack_version: int | None = Field(default=None, ge=1)
+    decision_mode: DecisionMode = "hybrid"
 
 
 class JobRecord(BaseModel):
@@ -487,6 +489,7 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
                 style_pack,
                 output_path,
                 audit_dir=job_directory,
+                decision_mode=request.decision_mode,
             )
             render_revision = job.render_revision + 1
             preview_path = job_directory / "preview" / f"document-{render_revision}.pdf"

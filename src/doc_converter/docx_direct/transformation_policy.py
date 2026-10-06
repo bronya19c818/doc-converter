@@ -133,6 +133,6 @@ _ROLE_POLICIES = {
 
 
 def policy_for_role(role: str, *, action: Action = "mapped") -> TransformationPolicy:
-    """Only legacy mapped roles may enter visual rewriting."""
+    """Only selected mapped roles may enter visual rewriting."""
 
     return _ROLE_POLICIES.get(role, PRESERVE_POLICY) if action == "mapped" else PRESERVE_POLICY

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from docx.oxml import parse_xml
 from docx.oxml.ns import qn
 
@@ -24,8 +25,8 @@ DIRECT_FORMATTING_TAGS = {
 }
 
 
-def classified_fixture():
-    return classify_document(analyze_docx(FIXTURE))
+def classified_fixture(decision_mode="hybrid"):
+    return classify_document(analyze_docx(FIXTURE), decision_mode=decision_mode)
 
 
 def paragraph_text(paragraph) -> str:
@@ -43,13 +44,16 @@ def paragraph_style(paragraph) -> str | None:
     return style.get(qn("w:val")) if style is not None else None
 
 
-def test_mapping_changes_only_mapped_paragraph_styles() -> None:
+@pytest.mark.parametrize("mode", ["shadow", "hybrid"])
+def test_mapping_changes_only_mapped_paragraph_styles(mode) -> None:
     before = read_zip_member(FIXTURE, "word/document.xml")
-    after, report = patch_document_xml(before, classified_fixture())
+    after, report = patch_document_xml(before, classified_fixture(mode))
 
     assert paragraph_style(paragraph_for_text(after, "CASE-H-001")) == "DC_Heading1"
     assert paragraph_style(paragraph_for_text(after, "CASE-LIST-B1")) == "ListBullet"
-    assert paragraph_style(paragraph_for_text(after, "CASE-LIST-LITERAL-001")) is None
+    assert paragraph_style(paragraph_for_text(after, "CASE-LIST-LITERAL-001")) == (
+        "DC_BodyParagraph" if mode == "hybrid" else None
+    )
     assert report["mapped_count"] >= 1
     assert report["preserved_count"] >= 1
 

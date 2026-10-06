@@ -89,8 +89,11 @@ def _patch_document_xml(
     }
     for element in analysis.elements:
         paragraph = paragraphs.get(element.xml_path)
-        policy = policy_for_role(element.role, action=element.action)
-        target_style = ROLE_TO_STYLE_ID.get(element.role)
+        decision = element.selected_decision
+        if decision is None:
+            raise ValueError(f"缺少 selected_decision：{element.element_id}")
+        policy = policy_for_role(decision.role, action=decision.action)
+        target_style = ROLE_TO_STYLE_ID.get(decision.role)
         if target_style is None:
             policy = PRESERVE_POLICY
         audit = (
@@ -106,25 +109,25 @@ def _patch_document_xml(
         report["policy_counts"][audit.policy_family] = (
             report["policy_counts"].get(audit.policy_family, 0) + 1
         )
-        if element.action == "uncertain":
+        if decision.action == "uncertain":
             report["uncertain_count"] += 1
             audit.skipped_properties.append(
                 PropertyDecision(
                     property="paragraph",
                     level="paragraph",
                     mode="preserve",
-                    reason="legacy action 为 uncertain，保留原样",
+                    reason="selected action 为 uncertain，保留原样",
                 )
             )
             continue
-        if element.action != "mapped":
+        if decision.action != "mapped":
             report["preserved_count"] += 1
             audit.skipped_properties.append(
                 PropertyDecision(
                     property="paragraph",
                     level="paragraph",
                     mode="preserve",
-                    reason="legacy action 非 mapped，保留原样",
+                    reason="selected action 非 mapped，保留原样",
                 )
             )
             continue
@@ -162,7 +165,7 @@ def _patch_document_xml(
             paragraph, policy, audit, target_style=target_style
         )
         if (
-            element.role in {"body-table", "table-row-header", "table-column-header"}
+            decision.role in {"body-table", "table-row-header", "table-column-header"}
             and "ind" in paragraph_removed
         ):
             report["table_indents_removed"] += 1
@@ -185,7 +188,10 @@ def _patch_document_xml(
         report["mapped_count"] += 1
         report["modified_element_ids"].append(element.element_id)
 
-    return serialize_xml_payload(root), report
+    # No selected mapping may rewrite even an XML declaration or serialization whitespace.
+    document_xml = serialize_xml_payload(root) if report["mapped_count"] else payload
+    report["document_xml_changed"] = document_xml != payload
+    return document_xml, report
 
 
 def _neutral_character_styles(payload: bytes) -> dict[str, frozenset[str]]:
