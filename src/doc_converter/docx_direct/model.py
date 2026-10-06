@@ -82,6 +82,8 @@ class ElementAnalysis(BaseModel):
     has_manual_break: bool = False
     has_drawing: bool = False
     has_field: bool = False
+    has_embedded_object: bool = False
+    has_math: bool = False
     role: str = "unknown"
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     action: Action = "preserved"

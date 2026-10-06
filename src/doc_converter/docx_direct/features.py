@@ -23,6 +23,11 @@ DATE_PATTERN = re.compile(
 CAPTION_PATTERN = re.compile(r"^(表|图|Table|Figure)\s*[一二三四五六七八九十百\d]+", re.I)
 ORGANIZATION_PATTERN = re.compile(r"(?:公司|部门|中心|研究院|大学|学院|公司.{0,12}[部处])$")
 PERSON_PATTERN = re.compile(r"^[赵钱孙李周吴郑王冯陈卫蒋沈韩杨朱秦许何吕施张孔曹严华金魏陶姜谢苏潘葛彭鲁韦马方俞任袁柳][\u4e00-\u9fff]{1,3}$")
+AUTHOR_LIST_SEPARATOR = re.compile(r"[ ,，、\u3000]+")
+ABSTRACT_LABEL = re.compile(r"^(?:摘要|abstract)\s*[:：]", re.I)
+AUTHOR_AFFILIATION = re.compile(
+    r"^[\u4e00-\u9fff ]{1,60}(?:公司|大学|学院|研究院|研究所|研究单位|中心)(?:[，,].{0,60})?$"
+)
 REFERENCE_BOUNDARIES = {"参考文献", "参考资料", "references"}
 TERMINAL_PUNCTUATION = "。；：，、？！.!?,;:"
 NUMBERING_PATTERNS = (
@@ -60,6 +65,19 @@ def _number(value: Any) -> float | None:
     return None
 
 
+def _author_name_count(text: str) -> int:
+    """Bounded Chinese-name list; reuse known surnames plus the common surname 林."""
+    if not 0 < len(text) <= 64:
+        return 0
+    names = AUTHOR_LIST_SEPARATOR.split(text)
+    if not 2 <= len(names) <= 8:
+        return 0
+    if all(PERSON_PATTERN.fullmatch(name) or re.fullmatch(r"林[\u4e00-\u9fff]{1,3}", name)
+           for name in names):
+        return len(names)
+    return 0
+
+
 def _plain_features(element: ElementAnalysis, index: int, total: int) -> dict[str, Any]:
     text = element.text.strip()
     effective = element.effective_format
@@ -73,6 +91,7 @@ def _plain_features(element: ElementAnalysis, index: int, total: int) -> dict[st
     automatic = element.numbering_properties.get("num_id") not in (None, "0", 0)
     is_list = automatic or (element.original_style_name or "").lower().startswith("list ")
     terminal = bool(text and text[-1] in TERMINAL_PUNCTUATION)
+    author_count = _author_name_count(text)
     return {
         "text_length": len(text),
         "has_sentence_punctuation": bool(re.search(r"[。；？！.!?;]", text)),
@@ -81,6 +100,10 @@ def _plain_features(element: ElementAnalysis, index: int, total: int) -> dict[st
         "explicit_organization_label": bool(ORGANIZATION_LABEL.fullmatch(text)),
         "explicit_date": bool(DATE_PATTERN.fullmatch(text)),
         "person_name_pattern": bool(PERSON_PATTERN.fullmatch(text)),
+        "author_name_list_pattern": author_count > 0,
+        "author_name_count": author_count,
+        "abstract_label": bool(ABSTRACT_LABEL.match(text)),
+        "author_affiliation_pattern": len(text) <= 100 and bool(AUTHOR_AFFILIATION.fullmatch(text)),
         "organization_pattern": len(text) <= 80 and bool(ORGANIZATION_PATTERN.search(text)),
         "caption_pattern": caption.group(1).lower() if caption else None,
         "reference_boundary": text.lower().rstrip(":：") in REFERENCE_BOUNDARIES,
@@ -115,6 +138,10 @@ def _plain_features(element: ElementAnalysis, index: int, total: int) -> dict[st
         "has_hyperlink": element.has_hyperlink,
         "has_field": element.has_field,
         "has_drawing": element.has_drawing,
+        "has_embedded_object": element.has_embedded_object,
+        "has_math": element.has_math,
+        "has_complex_object": (element.has_field or element.has_drawing
+                               or element.has_embedded_object or element.has_math),
         "has_tab": element.has_tab,
         "has_manual_break": element.has_manual_break,
         "short_text": 0 < len(text) <= 80,

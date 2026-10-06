@@ -208,6 +208,13 @@ def _analyze_paragraph(
         has_drawing=paragraph.find(".//" + qn("w:drawing")) is not None,
         has_field=(paragraph.find(".//" + qn("w:fldSimple")) is not None
         or paragraph.find(".//" + qn("w:instrText")) is not None),
+        has_embedded_object=any(
+            paragraph.find(".//" + tag) is not None
+            for tag in (qn("w:object"), qn("w:pict"),
+                        "{urn:schemas-microsoft-com:office:office}OLEObject")
+        ),
+        has_math=any(paragraph.find(".//" + qn(tag)) is not None
+                     for tag in ("m:oMath", "m:oMathPara")),
     )
 
 
