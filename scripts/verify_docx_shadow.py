@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from hashlib import sha256
 from pathlib import Path
 from zipfile import ZipFile
@@ -25,6 +26,8 @@ from doc_converter.api import create_app
 from doc_converter.style_library import StyleLibrary, StylePack, create_style_pack
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 def write_json(path: Path, payload: object) -> None:
@@ -130,7 +133,9 @@ def part_hashes(path: Path) -> dict[str, str]:
         return {name: sha256(package.read(name)).hexdigest() for name in package.namelist()}
 
 
-def convert(source: Path, output: Path, pack: StylePack) -> dict[str, object]:
+def convert(
+    source: Path, output: Path, pack: StylePack, *, decision_mode: str = "shadow",
+) -> dict[str, object]:
     output.mkdir(parents=True, exist_ok=True)
     StyleLibrary(output / "app-data").save(pack.model_copy(update={"version": 0}))
     with TestClient(create_app(data_root=output / "app-data")) as client:
@@ -143,7 +148,9 @@ def convert(source: Path, output: Path, pack: StylePack) -> dict[str, object]:
         assert response.status_code == 201, response.text
         job = response.json()
         assert job["conversion_mode"] == "docx-direct"
-        response = client.post(f"/api/jobs/{job['id']}/normalize-docx-direct", json={})
+        response = client.post(
+            f"/api/jobs/{job['id']}/normalize-docx-direct", json={"decision_mode": decision_mode},
+        )
         assert response.status_code == 200, response.text
         completed = response.json()
         for artifact in completed["artifacts"]:
@@ -164,7 +171,7 @@ def convert(source: Path, output: Path, pack: StylePack) -> dict[str, object]:
     }
 
 
-def check_shadow(output: Path, expected: dict[str, str]) -> int:
+def check_shadow(output: Path, expected: dict[str, str], decision_mode: str = "shadow") -> int:
     payload = json.loads((output / "docx-analysis.json").read_text(encoding="utf-8"))
     roles = {
         "document-title",
@@ -203,7 +210,7 @@ def check_shadow(output: Path, expected: dict[str, str]) -> int:
         if e["text"] == "参考文献" and not e["table_context"]:
             assert decision["role"] == "reference-heading"
     report = json.loads((output / "docx-normalization-report.json").read_text(encoding="utf-8"))
-    assert report["classification_mode"] == "legacy-with-shadow"
+    assert report["classification_mode"] == decision_mode
     assert all(r["legacy_decision"] and r["scored_decision"] for r in report["elements"])
     return len(payload["elements"])
 
@@ -265,7 +272,7 @@ def check_policy_baseline(actual: dict, baseline: dict, previous: Path, output: 
     }
 
 
-def check_edges(folder: Path, pack: StylePack) -> dict[str, int]:
+def check_edges(folder: Path, pack: StylePack, decision_mode: str = "shadow") -> dict[str, int]:
     """Adversarial full conversions, with conservative-action assertions."""
     folder.mkdir(parents=True, exist_ok=False)
     cases = {
@@ -303,11 +310,15 @@ def check_edges(folder: Path, pack: StylePack) -> dict[str, int]:
         source = folder / f"{name}.docx"
         doc.save(source)
         output = folder / name
-        convert(source, output, pack)
-        check_shadow(output, {texts[0]: "document-title"} if name == "large-left-title" else {})
+        convert(source, output, pack, decision_mode=decision_mode)
+        check_shadow(output, {texts[0]: "document-title"} if name == "large-left-title" else {},
+                     decision_mode)
         data = json.loads((output / "docx-analysis.json").read_text(encoding="utf-8"))
         if name == "large-left-title":
             assert data["elements"][0]["scored_decision"]["action"] == "mapped"
+            if decision_mode == "hybrid":
+                assert data["elements"][0]["selected_decision"]["action"] == "mapped"
+                assert data["elements"][0]["selected_decision"]["role"] == "document-title"
             results[name] = len(data["elements"])
             continue
         if name == "plain-short-phrases":
@@ -326,6 +337,10 @@ def check_edges(folder: Path, pack: StylePack) -> dict[str, int]:
             name,
             [e["scored_decision"] for e in targets],
         )
+        if decision_mode == "hybrid":
+            assert all(e["selected_decision"]["action"] != "mapped" for e in targets), (
+                name, [e["selected_decision"] for e in targets],
+            )
         results[name] = len(data["elements"])
     return results
 
@@ -337,6 +352,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--with-preview", action="store_true")
     parser.add_argument("--edge-cases", action="store_true")
+    parser.add_argument("--decision-mode", choices=("legacy", "shadow", "hybrid", "scored"),
+                        default="hybrid")
+    parser.add_argument("--acceptance", action="store_true",
+                        help="运行四份用户样本、ground truth 和原压力文档，保存可复跑产物")
     parser.add_argument(
         "--shadow-reference",
         type=Path,
@@ -348,6 +367,23 @@ def main() -> None:
         help="第二阶段：允许 document/styles 视觉变化，严格核对识别与结构",
     )
     args = parser.parse_args()
+    if args.acceptance or (args.output and not args.baseline and not args.capture_baseline):
+        from scripts.verify_docx_selected import verify_suite
+
+        assert args.output, "验收需要 --output 指定新的产物目录"
+        summary = verify_suite(args.output.resolve(), args.decision_mode,
+                               with_preview=args.with_preview)
+        if args.edge_cases:
+            summary["edges"] = check_edges(
+                args.output.resolve() / "edges",
+                create_style_pack(name="选择边界验收", format_id="docx"), args.decision_mode,
+            )
+            write_json(args.output.resolve() / "verification.json", summary)
+        print(json.dumps({"passed": summary["passed"], "decision_mode": args.decision_mode,
+                          "fixtures": len(summary["fixtures"]),
+                          "ground_truth_paragraphs": summary["ground_truth_paragraphs"]},
+                         ensure_ascii=False))
+        return
     if not args.with_preview:
         # Preview is outside this acceptance's scope; use the supported missing-engine path.
         os.environ["DOC_CONVERTER_LIBREOFFICE"] = str(ROOT / "artifacts/no-preview-engine")
@@ -358,7 +394,8 @@ def main() -> None:
         pack = create_style_pack(name="影子识别验收", format_id="docx")
         (folder / "pack.json").write_text(pack.model_dump_json(indent=2), encoding="utf-8")
         write_json(folder / "expected.json", expected)
-        results = {name: convert(folder / f"{name}.docx", folder / name, pack) for name in expected}
+        results = {name: convert(folder / f"{name}.docx", folder / name, pack,
+                                 decision_mode=args.decision_mode) for name in expected}
         write_json(folder / "baseline.json", results)
         print(f"BASELINE captured: {folder.resolve()}")
         return
@@ -372,7 +409,8 @@ def main() -> None:
     results = {}
     for name, roles in expected.items():
         output = args.output / name
-        actual = convert(args.baseline / f"{name}.docx", output, pack)
+        actual = convert(args.baseline / f"{name}.docx", output, pack,
+                         decision_mode=args.decision_mode)
         if args.policy_output:
             results[name] = check_policy_baseline(
                 actual, baseline[name], (args.shadow_reference or args.baseline) / name, output
@@ -380,8 +418,8 @@ def main() -> None:
         else:
             assert actual == baseline[name], f"影子识别改变了源/legacy/输出部件：{name}"
             results[name] = {"output_unchanged": True}
-        results[name]["paragraphs"] = check_shadow(output, roles)
-    edges = check_edges(args.output / "edges", pack) if args.edge_cases else {}
+        results[name]["paragraphs"] = check_shadow(output, roles, args.decision_mode)
+    edges = check_edges(args.output / "edges", pack, args.decision_mode) if args.edge_cases else {}
     write_json(
         args.output / "verification.json", {"passed": True, "fixtures": results, "edges": edges}
     )

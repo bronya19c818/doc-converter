@@ -25,10 +25,11 @@ def _sha256(path: Path) -> str:
 
 def test_pressure_fixture_is_the_user_provided_docx() -> None:
     source = Path(r"C:\Users\Lenovo\Downloads\DOCX转Markdown压力测试_V1_结构兼容性.docx")
-    fixture = Path(__file__).parent / "fixtures" / source.name
-    assert source.is_file(), f"缺少用户指定压力测试文件：{source}"
+    fixture = Path(__file__).parent / "fixtures/DOCX转Markdown压力测试_V1_结构兼容性.docx"
     assert fixture.is_file()
-    assert _sha256(source) == _sha256(fixture)
+    assert _sha256(fixture) == "f3a74afdc5da7fbd74edd1d663dffb58ce1eebc92a4daf03ed0a7960c1c373e9"
+    if source.is_file():
+        assert _sha256(source) == _sha256(fixture)
 
 
 def _element(**overrides: Any) -> ElementAnalysis:

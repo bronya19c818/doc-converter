@@ -17,6 +17,7 @@ frontend/tsconfig.tsbuildinfo
 .doc-converter/
 artifacts/
 *.docx
+!tests/fixtures/docx_direct_acceptance/*.docx
 *.pdf
 .release-assets/
 release/

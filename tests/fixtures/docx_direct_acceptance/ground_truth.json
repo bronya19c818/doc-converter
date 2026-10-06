@@ -1,0 +1,152 @@
+{
+  "purpose": "Acceptance samples for DOCX Direct selected_decision rollout",
+  "version": "V1",
+  "decision_target": "scored_decision -> selected_decision -> transformation policy",
+  "files": {
+    "sample_01_chinese_report.docx": [
+      {
+        "text": "配电物资仓储协同优化项目建议书",
+        "role": "document-title"
+      },
+      {
+        "text": "（试行稿）",
+        "role": "document-subtitle"
+      },
+      {
+        "text": "某供电公司物资部",
+        "role": "organization-department"
+      },
+      {
+        "text": "2026年10月",
+        "role": "date"
+      },
+      {
+        "text": "一、项目背景",
+        "role": "heading-1"
+      },
+      {
+        "text": "（一）现状分析",
+        "role": "heading-2"
+      },
+      {
+        "text": "1. 周转效率偏低",
+        "role": "heading-3"
+      },
+      {
+        "text": "表1 核心指标及管理用途",
+        "role": "table-caption"
+      },
+      {
+        "text": "参考资料",
+        "role": "reference-heading"
+      }
+    ],
+    "sample_02_technical_spec_decimal.docx": [
+      {
+        "text": "仓储数字化终端技术规范书",
+        "role": "document-title"
+      },
+      {
+        "text": "1 范围",
+        "role": "heading-1"
+      },
+      {
+        "text": "3 术语和定义",
+        "role": "heading-1"
+      },
+      {
+        "text": "4.1 基本要求",
+        "role": "heading-2"
+      },
+      {
+        "text": "4.1.1 环境条件",
+        "role": "heading-3"
+      },
+      {
+        "text": "4.1.2 功能要求",
+        "role": "heading-3"
+      },
+      {
+        "text": "1. 每批物资完成收货后，应校验数量、批次和储位信息。",
+        "role": "body-paragraph",
+        "note": "numbered sentence, not heading"
+      },
+      {
+        "text": "表1 数据字段示例",
+        "role": "table-caption"
+      }
+    ],
+    "sample_03_ambiguous_numbering.docx": [
+      {
+        "text": "2026年度物资盘点实施方案",
+        "role": "document-title",
+        "note": "left-aligned title; expected new scorer to handle better than legacy"
+      },
+      {
+        "text": "物资供应中心",
+        "role": "organization-department"
+      },
+      {
+        "text": "2026年10月",
+        "role": "date"
+      },
+      {
+        "text": "一、总体要求",
+        "role": "heading-1"
+      },
+      {
+        "text": "1. 盘点范围",
+        "role": "heading-2",
+        "note": "family inference should override fixed dot-number heuristic"
+      },
+      {
+        "text": "（1）中心库",
+        "role": "heading-3"
+      },
+      {
+        "text": "1. 盘点人员应按任务清单逐库位核验，不得仅依据系统数量直接确认。",
+        "role": "body-paragraph",
+        "note": "complete numbered sentence"
+      },
+      {
+        "text": "阶段性工作安排",
+        "role": "body-paragraph",
+        "note": "large bold body phrase; not document-title"
+      }
+    ],
+    "sample_04_structure_preservation.docx": [
+      {
+        "text": "仓储异常处置闭环说明",
+        "role": "document-title"
+      },
+      {
+        "text": "一、异常识别",
+        "role": "heading-1"
+      },
+      {
+        "text": "二、处置流程",
+        "role": "heading-1"
+      },
+      {
+        "text": "表1 异常处置记录",
+        "role": "table-caption"
+      },
+      {
+        "text": "参考文献",
+        "role": "reference-heading"
+      },
+      {
+        "text": "核验系统记录与实物状态",
+        "role": "unknown",
+        "action": "preserved",
+        "note": "native numbered list; preserve list semantics"
+      }
+    ]
+  },
+  "acceptance_notes": [
+    "Text content and paragraph order must remain unchanged after normalization.",
+    "New scored classifier should be compared with legacy and ground truth before takeover.",
+    "High-confidence selected decisions may drive transformation; ambiguous items should preserve/fallback.",
+    "Hyperlinks, list numbering, merged tables, header/footer, page breaks, superscript/subscript must remain structurally intact."
+  ]
+}
