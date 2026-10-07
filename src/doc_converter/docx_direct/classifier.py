@@ -17,6 +17,7 @@ from doc_converter.docx_direct.model import (
 )
 from doc_converter.docx_direct.resolver import resolve_candidates
 from doc_converter.docx_direct.scoring import ScoringConfig, decide, score_roles
+from doc_converter.docx_direct.source_structure_recovery import finish_source_audit
 
 SUPPORTED_ROLES = frozenset(
     {
@@ -111,6 +112,7 @@ def classify_document(
         element.selected_decision, element.selection_source, element.selection_reason = (
             select_decision(element, config, decision_mode)
         )
+    finish_source_audit(legacy.elements, baselines)
     return legacy.model_copy(update={
         "classification_mode": decision_mode,
         "document_baselines": baselines,
