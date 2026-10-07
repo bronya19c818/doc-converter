@@ -728,11 +728,21 @@ def _convert_docx_to_pdf(source_path: Path, output_path: Path) -> bool:
     if executable is None:
         return False
 
-    conversion_root = output_path.parent / f".conversion-{uuid4().hex}"
-    profile_root = output_path.parent / f".profile-{uuid4().hex}"
-    conversion_root.mkdir(parents=True, exist_ok=True)
-    profile_root.mkdir(parents=True, exist_ok=True)
+    from tempfile import NamedTemporaryFile, TemporaryDirectory
+
+    # Keep native Office paths short and ASCII even when a job/output name is
+    # deeply nested or Chinese; the original and published DOCX stay untouched.
+    temporary = TemporaryDirectory(prefix="docx-pdf-")
+    conversion_root = Path(temporary.name)
+    profile_root = conversion_root / "profile"
+    profile_root.mkdir()
+    staged_pdf: Path | None = None
     try:
+        from doc_converter.preview_fonts import prepare_pdf_font_aliases
+
+        prepare_pdf_font_aliases(profile_root)
+        staged_source = conversion_root / "document.docx"
+        shutil.copyfile(source_path, staged_source)
         result = subprocess.run(
             [
                 executable,
@@ -742,23 +752,30 @@ def _convert_docx_to_pdf(source_path: Path, output_path: Path) -> bool:
                 "pdf",
                 "--outdir",
                 str(conversion_root),
-                str(source_path),
+                str(staged_source),
             ],
             capture_output=True,
             check=False,
             timeout=60,
         )
-        generated_path = conversion_root / f"{source_path.stem}.pdf"
+        generated_path = conversion_root / "document.pdf"
         if result.returncode != 0 or not generated_path.exists():
             return False
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        generated_path.replace(output_path)
+        # The native temporary directory may be on another drive. Publish an
+        # atomic copy beside the destination rather than a cross-drive rename.
+        with NamedTemporaryFile(dir=output_path.parent, prefix=".pdf-", suffix=".tmp", delete=False) as staged:
+            staged_pdf = Path(staged.name)
+            with generated_path.open("rb") as generated:
+                shutil.copyfileobj(generated, staged)
+        staged_pdf.replace(output_path)
         return True
     except (OSError, subprocess.TimeoutExpired):
         return False
     finally:
-        shutil.rmtree(conversion_root, ignore_errors=True)
-        shutil.rmtree(profile_root, ignore_errors=True)
+        if staged_pdf is not None:
+            staged_pdf.unlink(missing_ok=True)
+        temporary.cleanup()
 
 
 def _find_soffice() -> str | None:
