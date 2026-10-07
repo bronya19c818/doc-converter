@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
+from doc_converter.docx_direct.hierarchy_resolver import resolve_hierarchy
+from doc_converter.docx_direct.manual_sequences import extract_sequence_evidence
 from doc_converter.docx_direct.model import RoleCandidate
 from doc_converter.docx_direct.scoring import ScoringConfig, contribute
 
@@ -13,7 +15,9 @@ def _safe_heading(f: dict[str, Any]) -> bool:
     return bool(
         f["short_text"] and not f["body_sentence"] and f["table_context"] is None
         and not f["list"]
-        and not any(f[k] for k in ("has_complex_object", "has_manual_break", "author_name_list_shape",
+        and not f.get("manual_sequence_candidate", False)
+        and not (f["author_name_list_shape"] and not f["numbering_family"])
+        and not any(f[k] for k in ("has_complex_object", "has_manual_break",
                                   "explicit_author_label", "explicit_organization_label",
                                   "explicit_date", "caption_pattern", "reference_boundary"))
         and (f["native_heading_level"] or f["numbering_family"]
@@ -74,10 +78,10 @@ def _author_followup(features: list[dict[str, Any]], index: int) -> bool:
     return False
 
 
-def _numbering_levels(
+def _global_numbering_prior(
     features: list[dict[str, Any]],
 ) -> tuple[dict[str, int], set[str], set[str]]:
-    """Infer family ordering from safe occurrences, with native/outline anchors."""
+    """Compatibility audit prior; it does not assign effective heading levels."""
 
     anchors: defaultdict[str, set[int]] = defaultdict(set)
     families: list[str] = []
@@ -125,8 +129,9 @@ def resolve_candidates(
 ) -> dict[str, Any]:
     """Correct candidates with additive context evidence; leave raw scores intact."""
 
+    extract_sequence_evidence(features)
     _assign_shadow_regions(features, config)
-    numbering, conflicts, corroborated = _numbering_levels(features)
+    numbering, conflicts, corroborated = _global_numbering_prior(features)
     for f, roles in zip(features, candidates, strict=True):
         for c in roles:
 
@@ -144,21 +149,8 @@ def resolve_candidates(
                     60 if f["is_postface"] and f["table_context"] is None else -60,
                     "参考文献边界后的区域证据")
             if c.role.startswith("heading-"):
-                level = int(c.role[-1])
                 if f["is_body"]:
                     add("heading_body_region", 5, "位于正文结构区域")
-                family = f["numbering_family"]
-                if family in conflicts:
-                    add("numbering_anchor_conflict", -30, "同一编号家族出现不一致的原生/大纲层级锚点")
-                elif family in numbering and _safe_heading(f):
-                    expected = numbering[family]
-                    if level == expected and family not in corroborated:
-                        add("numbering_family_uncorroborated", 10,
-                            f"全文仅有未获层级锚点的 {family} 家族；第 {expected} 级只是弱推断，可能是手工列表")
-                    else:
-                        add("numbering_family_match" if level == expected else "numbering_family_other",
-                            40 if level == expected else -35,
-                            f"全文编号家族 {family} 按出现顺序和层级锚点推断为第 {expected} 级")
 
     # Rank title candidates after region corrections. Only a clear contender can
     # provide title/subtitle ordering evidence; metadata and table text are excluded.
@@ -213,6 +205,7 @@ def resolve_candidates(
             author_context = (
                 title_index < i <= title_index + 4 and f["is_preface"]
                 and f["author_name_list_shape"] and f["author_surname_match_count"] > 0
+                and not f["numbering_family"]
                 and f["table_context"] is None and not f["list"]
                 and not f["has_complex_object"] and not f["has_manual_break"]
                 and _author_followup(features, i)
@@ -260,22 +253,11 @@ def resolve_candidates(
                 contribute(c, config, "organization_title_date_cluster", 20,
                            "机构名称位于文前题名之后、日期之前，顺序证据相互印证", context=True)
 
-    previous_heading = 0
-    for f, roles in zip(features, candidates, strict=True):
-        if not _safe_heading(f) or not f["is_body"]:
-            continue
-        top = max(roles, key=lambda c: c.resolved_score)
-        if not top.role.startswith("heading-") or top.resolved_score < config.medium_score:
-            continue
-        level = int(top.role[-1])
-        if previous_heading and level > previous_heading + 1:
-            contribute(top, config, "hierarchy_jump", -30,
-                       f"前一个标题为 {previous_heading} 级，本段直接跳到 {level} 级；降低置信并禁止映射",
-                       context=True)
-        previous_heading = level
+    hierarchy = resolve_hierarchy(features, candidates, config)
     return {
         "numbering_family_levels": numbering,
         "numbering_conflicts": sorted(conflicts),
         "numbering_corroborated_families": sorted(corroborated),
         "primary_title_element_index": title_index,
+        **hierarchy,
     }

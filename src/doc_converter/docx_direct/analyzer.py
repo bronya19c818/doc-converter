@@ -186,6 +186,7 @@ def _analyze_paragraph(
     signals = {
         "style_chain": resolved_format.get("style_chain", []),
         "based_on_heading": resolved_format.get("based_on_heading", False),
+        "has_section_break": ppr is not None and ppr.find(qn("w:sectPr")) is not None,
     }
     return ElementAnalysis(
         element_id=element_id,
