@@ -7,6 +7,7 @@ from copy import deepcopy
 from hashlib import sha256
 from typing import Any
 
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
 from doc_converter.docx_direct.ooxml_patch import parse_xml_payload, serialize_xml_payload
@@ -102,6 +103,67 @@ class CharacterStyleProjector:
     def removed_properties(self, style_id: str, removed: frozenset[str]) -> dict[str, int]:
         """Filtered inheritance-node counts for one run's successful projection."""
         return dict(self._removed_properties.get((style_id, removed), {}))
+
+    def rebase(self, style_id: str | None, target: str, removed: frozenset[str]) -> str | None:
+        """Retain semantic inheritance layers on an inline role, with stable IDs.
+
+        Stop at the target base on repeat conversions: its new StylePack font
+        must remain inherited rather than copied or projected away.
+        """
+        chain: list[Any] = []
+        visited: set[str] = set()
+        current = style_id
+        while current and current != target:
+            source = self.styles.get(current)
+            if current in visited or len(chain) >= 64 or source is None:
+                return None
+            if source.get(qn("w:type")) != "character":
+                return None
+            visited.add(current)
+            chain.append(source)
+            parent = source.find(qn("w:basedOn"))
+            current = parent.get(qn("w:val")) if parent is not None else None
+        # A previously rebased chain already inherits the managed content role.
+        # Its font follows A→B through that base; do not mint another chain.
+        if current == target and all(
+            not any(n.tag.rsplit("}", 1)[-1] in removed for n in source.find(qn("w:rPr")))
+            for source in chain if source.find(qn("w:rPr")) is not None
+        ):
+            return style_id or target
+        parent_id = target
+        removed_properties: Counter[str] = Counter()
+        for source in reversed(chain):
+            style = deepcopy(source)
+            props = style.find(qn("w:rPr"))
+            if props is not None:
+                for n in list(props):
+                    if n.tag.rsplit("}", 1)[-1] in removed | {"rStyle"}:
+                        removed_properties[n.tag.rsplit("}", 1)[-1]] += 1
+                        props.remove(n)
+            if props is None or not len(props):
+                continue
+            base = style.find(qn("w:basedOn"))
+            if base is None:
+                base = OxmlElement("w:basedOn")
+                style.insert(0, base)
+            base.set(qn("w:val"), parent_id)
+            sid = "DC_PolicyChar_" + sha256(repr(_signature(style)).encode()).hexdigest()[:20]
+            style.set(qn("w:styleId"), sid)
+            name = style.find(qn("w:name"))
+            if name is None:
+                name = OxmlElement("w:name")
+                style.insert(0, name)
+            name.set(qn("w:val"), sid)
+            existing = self.styles.get(sid)
+            if existing is not None and _signature(existing) != _signature(style):
+                return None
+            if existing is None:
+                self.root.append(style)
+                self.styles[sid] = style
+                self.inserted_ids.append(sid)
+            parent_id = sid
+        self._removed_properties[(style_id or "", removed)] = dict(removed_properties)
+        return parent_id
 
     def payload(self) -> bytes:
         return serialize_xml_payload(self.root) if self.inserted_ids else self.original_payload

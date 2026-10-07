@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from doc_converter.docx_direct.decision_selector import select_decision
+from doc_converter.docx_direct.explicit_roles import select_explicit_role
 from doc_converter.docx_direct.features import extract_document_features
 from doc_converter.docx_direct.model import (
     Action,
@@ -112,6 +113,7 @@ def classify_document(
         element.selected_decision, element.selection_source, element.selection_reason = (
             select_decision(element, config, decision_mode)
         )
+        select_explicit_role(element)
     finish_source_audit(legacy.elements, baselines)
     return legacy.model_copy(update={
         "classification_mode": decision_mode,

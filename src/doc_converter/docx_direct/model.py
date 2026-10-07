@@ -11,7 +11,13 @@ Action = Literal["mapped", "uncertain", "preserved"]
 DocumentRegion = Literal["preface", "body", "postface"]
 TransformSafety = Literal["safe", "guarded", "preserve"]
 DecisionMode = Literal["legacy", "shadow", "hybrid", "scored"]
-SelectionSource = Literal["scored", "legacy", "agreement", "preserve"]
+SelectionSource = Literal["scored", "legacy", "agreement", "preserve", "explicit"]
+
+
+class InlineSegment(BaseModel):
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+    role: str
 
 
 class PropertyDecision(BaseModel):
@@ -29,6 +35,13 @@ class TransformationAudit(BaseModel):
     removed_properties: list[PropertyDecision] = Field(default_factory=list)
     preserved_properties: list[PropertyDecision] = Field(default_factory=list)
     skipped_properties: list[PropertyDecision] = Field(default_factory=list)
+    expected_role_style: str | None = None
+    style_application_status: Literal["applied", "guarded", "preserved", "skipped"] = "preserved"
+    effective_style_after: str | None = None
+    effective_format_after: dict[str, Any] = Field(default_factory=dict)
+    effective_format_match: bool | None = None
+    format_checks: list[dict[str, Any]] = Field(default_factory=list)
+    guarded_run_indices: list[int] = Field(default_factory=list)
 
 
 class ScoreEvidence(BaseModel):
@@ -96,6 +109,7 @@ class ElementAnalysis(BaseModel):
     selection_source: SelectionSource = "preserve"
     selection_reason: str | None = None
     transformation: TransformationAudit | None = None
+    inline_segments: list[InlineSegment] = Field(default_factory=list)
 
 
 class DocumentAnalysis(BaseModel):
@@ -133,6 +147,13 @@ class NormalizationRecord(BaseModel):
     removed_properties: list[PropertyDecision] = Field(default_factory=list)
     preserved_properties: list[PropertyDecision] = Field(default_factory=list)
     skipped_properties: list[PropertyDecision] = Field(default_factory=list)
+    expected_role_style: str | None = None
+    style_application_status: Literal["applied", "guarded", "preserved", "skipped"] = "preserved"
+    effective_style_after: str | None = None
+    effective_format_after: dict[str, Any] = Field(default_factory=dict)
+    effective_format_match: bool | None = None
+    format_checks: list[dict[str, Any]] = Field(default_factory=list)
+    inline_segments: list[InlineSegment] = Field(default_factory=list)
 
 
 class DirectNormalizeResult(BaseModel):

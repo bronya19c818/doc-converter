@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,10 +30,13 @@ class _StyleDefinition:
 class EffectiveFormatResolver:
     """Resolve Word formatting inheritance without mutating XML nodes."""
 
-    def __init__(self, styles_root: Any | None = None, *, max_depth: int = 32) -> None:
+    def __init__(self, styles_root: Any | None = None, *, max_depth: int = 32, structural_guard: bool = False) -> None:
         self._styles_root = styles_root
         self._max_depth = max(1, max_depth)
         self._styles = self._read_styles(styles_root)
+        self._structural_guard = structural_guard
+        self._default_style_id = next((s.get(qn('w:styleId')) for s in styles_root.findall(qn('w:style'))
+                                       if s.get(qn('w:type')) == 'paragraph' and s.get(qn('w:default'), '0').lower() in _TRUE_VALUES), None) if styles_root is not None else None
         self._default_paragraph_properties = self._read_default_properties(
             styles_root,
             'w:pPrDefault',
@@ -66,12 +70,14 @@ class EffectiveFormatResolver:
 
         direct_ppr = paragraph.find(qn('w:pPr'))
         resolved_style_id = paragraph_style_id or _child_value(direct_ppr, 'w:pStyle')
+        if resolved_style_id is None and self._structural_guard:
+            resolved_style_id = self._default_style_id
         style_chain = self._style_chain(resolved_style_id)
         paragraph_properties = dict(self._default_paragraph_properties)
         run_properties = dict(self._default_run_properties)
         for style in style_chain:
             paragraph_properties.update(style.paragraph_properties)
-            run_properties.update(style.run_properties)
+            self._merge_run_properties(run_properties, style.run_properties, style=True)
         paragraph_properties.update(_property_map(direct_ppr))
 
         run_results: list[dict[str, Any]] = []
@@ -80,14 +86,19 @@ class EffectiveFormatResolver:
             character_style_id = _child_value(direct_rpr, 'w:rStyle')
             effective_run_properties = dict(run_properties)
             for style in self._style_chain(character_style_id):
-                effective_run_properties.update(style.run_properties)
-            effective_run_properties.update(_property_map(direct_rpr))
+                self._merge_run_properties(effective_run_properties, style.run_properties, style=True)
+            self._merge_run_properties(effective_run_properties, _property_map(direct_rpr))
             values = _format_values(effective_run_properties)
+            if self._structural_guard:
+                values.update(self._toggle_values(style_chain, self._style_chain(character_style_id), direct_rpr))
             values['text_length'] = len(_text(run))
+            values['text'] = _text(run)
             values['style_chain'] = [style.style_id for style in self._style_chain(character_style_id)]
             run_results.append(values)
 
         base_values = _format_values(run_properties)
+        if self._structural_guard:
+            base_values.update(self._toggle_values(style_chain, [], None))
         summary = _summarize_runs(run_results, base_values)
         paragraph_values = _paragraph_values(paragraph_properties)
         effective_size = summary['dominant_font_size_pt']
@@ -108,6 +119,32 @@ class EffectiveFormatResolver:
             'style_chain': [style.style_id for style in style_chain],
             'based_on_heading': any(_is_heading_style(style) for style in style_chain),
         }
+
+    def _merge_run_properties(self, base: dict[str, Any], values: dict[str, Any], *, style: bool = False) -> None:
+        for tag, node in values.items():
+            if self._structural_guard and tag == qn('w:rFonts') and tag in base:
+                merged = deepcopy(base[tag])
+                merged.attrib.update(node.attrib)
+                base[tag] = merged
+            else:
+                base[tag] = node
+
+    def _toggle_values(self, paragraph_chain: list[_StyleDefinition], character_chain: list[_StyleDefinition], direct: Any) -> dict[str, bool]:
+        result = {}
+        for key, prop in (('bold', 'b'), ('bold_cs', 'bCs'), ('italic', 'i'), ('italic_cs', 'iCs')):
+            tag = qn('w:' + prop)
+            default = bool(_boolean(self._default_run_properties.get(tag)))
+
+            def level(chain: list[_StyleDefinition]) -> bool:
+                nodes = [s.run_properties[tag] for s in chain if tag in s.run_properties]
+                return sum(bool(_boolean(n)) for n in nodes) % 2 == 1 if nodes else default
+
+            # Word applies toggles within each style level; absent values take
+            # docDefaults (MS-OI29500 2.1.230 / ISO 17.7.3).
+            value = default ^ level(paragraph_chain) ^ level(character_chain)
+            override = direct.find(tag) if direct is not None else None
+            result[key] = bool(_boolean(override)) if override is not None else value
+        return result
 
     def _style_chain(self, style_id: str | None) -> list[_StyleDefinition]:
         chain: list[_StyleDefinition] = []
@@ -221,10 +258,16 @@ def _format_values(properties: dict[str, Any]) -> dict[str, Any]:
     vert_align = _attribute(properties.get(qn('w:vertAlign')))
     return {
         'font_name': _font_name(fonts_node),
+        'font_slots': {slot: _attribute(fonts_node, slot) for slot in ('eastAsia', 'ascii', 'hAnsi', 'cs')},
         'font_size_pt': _font_size(size_node),
+        'font_size_cs_pt': _font_size(properties.get(qn('w:szCs'))),
         'bold': _boolean(properties.get(qn('w:b'))),
         'italic': _boolean(properties.get(qn('w:i'))),
+        'bold_cs': _boolean(properties.get(qn('w:bCs'))),
+        'italic_cs': _boolean(properties.get(qn('w:iCs'))),
         'color': _attribute(properties.get(qn('w:color'))),
+        'underline': _attribute(properties.get(qn('w:u'))),
+        'highlight': _attribute(properties.get(qn('w:highlight'))),
         'vert_align': vert_align,
     }
 
@@ -240,6 +283,9 @@ def _paragraph_values(properties: dict[str, Any]) -> dict[str, Any]:
         'outline_level': outline_level,
         'keep_next': _boolean(properties.get(qn('w:keepNext'))),
         'page_break_before': _boolean(properties.get(qn('w:pageBreakBefore'))),
+        'widow_control': _boolean(properties.get(qn('w:widowControl'))),
+        'paragraph_indent': {k.rsplit('}', 1)[-1]: v for k, v in properties.get(qn('w:ind'), {}).items()},
+        'paragraph_spacing': {k.rsplit('}', 1)[-1]: v for k, v in properties.get(qn('w:spacing'), {}).items()},
     }
 
 

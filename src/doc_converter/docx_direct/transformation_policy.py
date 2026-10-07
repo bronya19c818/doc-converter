@@ -10,7 +10,10 @@ from pydantic import BaseModel, ConfigDict
 from doc_converter.docx_direct.model import Action
 
 PropertyMode = Literal["replace", "preserve", "discard", "conditional"]
-PolicyFamily = Literal["structural-strong", "body-mixed", "table-body", "preserve"]
+PolicyFamily = Literal[
+    "heading-strong", "structural-metadata", "caption-strong", "body-mixed",
+    "table-body-mixed", "reference-mixed", "composite-metadata", "preserve",
+]
 
 # Executors only change allowed formatting nodes; these are never removed.
 PROTECTED_STRUCTURES = (
@@ -77,10 +80,11 @@ def _policy(
         "jc": "replace",
         "ind": "conditional",
         "spacing": "replace",
-        "keepNext": "preserve" if table else "replace",
-        "pageBreakBefore": "preserve",
+        "keepNext": "replace",
+        "widowControl": "replace",
+        "pageBreakBefore": "replace",
         "numPr": "preserve",
-        "outlineLvl": "preserve",
+        "outlineLvl": "replace",
     }
     run: dict[str, PropertyMode] = {
         "rFonts": "replace",
@@ -107,9 +111,13 @@ def _policy(
     )
 
 
-STRUCTURAL_STRONG_POLICY = _policy("structural-strong", strong=True)
+STRUCTURAL_STRONG_POLICY = _policy("structural-metadata", strong=True)
+HEADING_POLICY = _policy("heading-strong", strong=True)
+CAPTION_POLICY = _policy("caption-strong", strong=True)
+COMPOSITE_POLICY = _policy("composite-metadata", strong=True)
+REFERENCE_POLICY = _policy("reference-mixed")
 BODY_MIXED_POLICY = _policy("body-mixed")
-TABLE_BODY_POLICY = _policy("table-body", table=True)
+TABLE_BODY_POLICY = _policy("table-body-mixed", table=True)
 PRESERVE_POLICY = _policy("preserve", preserve=True)
 
 _ROLE_POLICIES = {
@@ -120,15 +128,16 @@ _ROLE_POLICIES = {
             "author",
             "organization-department",
             "date",
-            "table-caption",
-            "figure-caption",
             "reference-heading",
-            *(f"heading-{i}" for i in range(1, 7)),
         ),
         STRUCTURAL_STRONG_POLICY,
     ),
-    **dict.fromkeys(("body-paragraph", "reference-entry"), BODY_MIXED_POLICY),
-    **dict.fromkeys(("body-table", "table-row-header", "table-column-header"), TABLE_BODY_POLICY),
+    **dict.fromkeys((f"heading-{i}" for i in range(1, 7)), HEADING_POLICY),
+    **dict.fromkeys(("table-caption", "figure-caption"), CAPTION_POLICY),
+    **dict.fromkeys(("abstract-label", "keywords-label"), COMPOSITE_POLICY),
+    "reference-entry": REFERENCE_POLICY,
+    "body-paragraph": BODY_MIXED_POLICY,
+    **dict.fromkeys(("body-table", "table-column-header"), TABLE_BODY_POLICY),
 }
 
 

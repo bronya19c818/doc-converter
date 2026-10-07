@@ -36,7 +36,7 @@ class ParagraphStylePreserver:
             (
                 key
                 for key, s in self.styles.items()
-                if s.get(qn("w:type")) == "paragraph" and s.get(qn("w:default")) == "1"
+                if s.get(qn("w:type")) == "paragraph" and s.get(qn("w:default"), "0").lower() in {"1", "true", "on", "yes"}
             ),
             None,
         )
@@ -72,7 +72,7 @@ class ParagraphStylePreserver:
         layers = ([self.defaults] if self.defaults is not None else []) + list(reversed(chain))
         inherited: dict[str, Any] = {}
         for layer in layers:
-            for tag in ("numPr", "ind", "pageBreakBefore", "keepNext", "outlineLvl"):
+            for tag in ("numPr", "ind"):
                 value = layer.find(qn("w:" + tag))
                 if value is not None:
                     inherited[tag] = _merge(inherited.get(tag), value)

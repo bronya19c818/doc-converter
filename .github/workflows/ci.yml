@@ -48,6 +48,9 @@ jobs:
       - name: Selected decision acceptance and pressure artifacts
         if: always()
         run: uv run python scripts/verify_docx_shadow.py --decision-mode hybrid --acceptance --output artifacts/selected-ci
+      - name: Role-specific effective formatting acceptance
+        if: always()
+        run: uv run python scripts/verify_docx_roles.py --output artifacts/role-ci
       - name: Upload repeatable DOCX and audit evidence
         if: always()
         uses: actions/upload-artifact@v4

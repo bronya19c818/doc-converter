@@ -139,6 +139,11 @@ def _iter_table(
     table_depth = parent_depth + 1
     rows = [child for child in table if child.tag == TR_TAG]
     for row_index, row in enumerate(rows):
+        trpr = row.find(qn("w:trPr"))
+        header = trpr.find(qn("w:tblHeader")) if trpr is not None else None
+        explicit_header = header is not None and header.get(qn("w:val"), "1").lower() not in {
+            "0", "false", "off", "no",
+        }
         cells = [child for child in row if child.tag == TC_TAG]
         for cell_index, cell in enumerate(cells):
             context = {
@@ -146,6 +151,7 @@ def _iter_table(
                 "row": row_index,
                 "column": cell_index,
                 "nested": table_depth > 1,
+                "explicit_header": explicit_header,
             }
             cell_path = table_path + (row_index, cell_index)
             yield from _iter_paragraphs(cell, path=cell_path, table_context=context)

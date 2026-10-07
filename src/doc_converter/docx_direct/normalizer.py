@@ -15,6 +15,7 @@ from doc_converter.docx_direct.audit import (
     write_audit_bundle,
 )
 from doc_converter.docx_direct.classifier import classify_document
+from doc_converter.docx_direct.format_verification import verify_effective_format
 from doc_converter.docx_direct.model import DecisionMode, DirectNormalizeResult
 from doc_converter.docx_direct.ooxml_patch import read_zip_member, write_zip_copy
 from doc_converter.docx_direct.scoring import ScoringConfig
@@ -58,6 +59,8 @@ def normalize_docx_direct(
             before_document,
             analysis,
             styles_payload=read_zip_member(staged_styles, "word/styles.xml"),
+            source_styles_payload=read_zip_member(source, "word/styles.xml"),
+            guarded_style_ids=frozenset(style_report.get("guarded_style_ids", [])),
         )
         write_zip_copy(
             staged_styles,
@@ -65,6 +68,7 @@ def normalize_docx_direct(
             replacements,
         )
         _validate_output_docx(staged_output)
+        verify_effective_format(analysis, staged_output, style_pack, source)
         if sha256_file(source) != source_sha256:
             raise ValueError("源文件在写出期间发生变化，已取消规范化。")
 

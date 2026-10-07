@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from doc_converter.docx_direct.model import DocumentAnalysis, NormalizationRecord
+from doc_converter.docx_direct.role_capabilities import role_capabilities
 from doc_converter.docx_styles import ROLE_TO_STYLE_ID
 from doc_converter.style_library import StylePack
 
@@ -63,6 +64,11 @@ def build_normalization_records(analysis: DocumentAnalysis) -> list[Normalizatio
                 removed_properties=transformation.removed_properties if transformation else [],
                 preserved_properties=transformation.preserved_properties if transformation else [],
                 skipped_properties=transformation.skipped_properties if transformation else [],
+                inline_segments=element.inline_segments,
+                **({key: getattr(transformation, key) for key in (
+                    "expected_role_style", "style_application_status", "effective_style_after",
+                    "effective_format_after", "effective_format_match", "format_checks",
+                )} if transformation else {}),
             )
         )
     return records
@@ -96,11 +102,18 @@ def write_audit_bundle(
             if (a := getattr(e, first)) is not None and (b := getattr(e, second)) is not None
         )
     modified_parts: list[str] = []
-    if style_report.get("inserted_count", 0) or patch_report.get("projected_character_styles"):
+    if style_report.get("inserted_count", 0) or style_report.get("replaced_count", 0) or patch_report.get("projected_character_styles"):
         modified_parts.append("word/styles.xml")
     if patch_report.get("document_xml_changed", False):
         modified_parts.append("word/document.xml")
     report = {
+        "role_capabilities": role_capabilities(),
+        "effective_format_verification": {
+            "matched": sum(r.effective_format_match is True for r in records),
+            "mismatched": sum(r.effective_format_match is False for r in records),
+            "not_applied": sum(r.effective_format_match is None for r in records),
+            "statuses": dict(Counter(r.style_application_status for r in records)),
+        },
         "classification_mode": analysis.classification_mode,
         "scoring_config": analysis.scoring_config,
         "classification": {

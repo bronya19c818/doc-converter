@@ -227,12 +227,17 @@ def apply_run_policy(
     projector: CharacterStyleProjector | None = None,
     neutral_character_styles: dict[str, frozenset[str]] | None = None,
     field_runs: frozenset[Any] = frozenset(),
+    run_filter: frozenset[Any] | None = None,
+    content_style: str | None = None,
 ) -> dict[str, int]:
     """Normalize ordinary text, preserving protected regions and local semantics."""
     if policy.family == "preserve":
         _record(audit, "skipped", "runs", "run", "preserve", "角色或 action 不允许视觉重写")
         return {}
     runs, guarded = _text_runs(paragraph, field_runs)
+    if run_filter is not None:
+        runs = [r for r in runs if r in run_filter]
+        guarded = [r for r in guarded if r in run_filter]
     if guarded:
         audit.transform_safety = "guarded"
         _record(
@@ -264,15 +269,22 @@ def apply_run_policy(
             conditional.add(rule.property)
     stripped = frozenset(r.property for r in policy.run_rules if r.mode in {"replace", "discard"})
     for run in runs:
+        hyperlink = any(_local(a.tag) == "hyperlink" for a in run.iterancestors())
+        run_stripped = stripped - {"color", "u", "highlight"} if hyperlink else stripped
         properties = run.find(qn("w:rPr"))
         if properties is None:
-            continue
+            if content_style is None:
+                continue
+            properties = OxmlElement("w:rPr")
+            run.insert(0, properties)
         style = _property(run, "rStyle")
         style_id = style.get(qn("w:val")) if style is not None else None
-        if style_id and projector is not None:
-            projected = projector.project(style_id, stripped)
+        if (style_id or content_style) and projector is not None:
+            projected = (projector.rebase(style_id, content_style, run_stripped)
+                         if content_style else projector.project(style_id or "", run_stripped))
             if projected is None:
                 audit.transform_safety = "guarded"
+                audit.guarded_run_indices.append(list(paragraph.iter(qn("w:r"))).index(run))
                 _record(
                     audit,
                     "skipped",
@@ -282,10 +294,13 @@ def apply_run_policy(
                     "字符样式缺失、循环或无法安全解析，保留该 run 的源格式",
                 )
                 continue
-            if projected != style_id and style is not None:
+            if style is None:
+                style = OxmlElement("w:rStyle")
+                properties.insert(0, style)
+            if projected != style_id:
                 style.set(qn("w:val"), projected)
                 for property_name, count in projector.removed_properties(
-                    style_id, stripped
+                    style_id or "", run_stripped
                 ).items():
                     _record(
                         audit,
@@ -310,7 +325,7 @@ def apply_run_policy(
             nodes = properties.findall(qn("w:" + rule.property))
             if not nodes:
                 continue
-            replace = rule.mode in {"replace", "discard"} or rule.property in conditional
+            replace = rule.property in run_stripped or rule.property in conditional
             unresolved_style = (
                 style_id
                 and projector is None
