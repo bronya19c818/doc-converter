@@ -22,15 +22,18 @@ def test_policy_families_and_absolute_structure_preservation() -> None:
     ] + [f"heading-{i}" for i in range(1, 7)]
     for role in structural:
         policy = policy_for_role(role)
-        assert policy.family == "structural-strong"
+        expected = "heading-strong" if role.startswith("heading-") else (
+            "caption-strong" if role.endswith("-caption") else "structural-metadata"
+        )
+        assert policy.family == expected
         assert policy.run_properties["rFonts"] == "replace"
         assert policy.run_properties["b"] == "replace"
     for role in ("body-paragraph", "reference-entry"):
         policy = policy_for_role(role)
-        assert policy.family == "body-mixed"
+        assert policy.family == ("reference-mixed" if role == "reference-entry" else "body-mixed")
         assert policy.run_properties["b"] == "conditional"
         assert policy.run_properties["u"] == "conditional"
-    assert policy_for_role("body-table").family == "table-body"
+    assert policy_for_role("body-table").family == "table-body-mixed"
     assert policy_for_role("unexpected-role").family == "preserve"
     assert policy_for_role("heading-1", action="uncertain").family == "preserve"
     for role in structural + ["body-paragraph", "body-table", "unknown"]:

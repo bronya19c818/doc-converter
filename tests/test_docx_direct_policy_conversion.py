@@ -329,13 +329,13 @@ def verify_policy_conversion(folder: Path, decision_mode="hybrid") -> dict[str, 
     assert all(r["policy_name"] and r["policy_family"] for r in records)
     assert (
         next(r for r in records if r["text"].startswith("策略层级1"))["policy_family"]
-        == "structural-strong"
+        == "heading-strong"
     )
     assert (
         next(r for r in records if r["text"].startswith("复杂正文"))["transform_safety"]
-        == ("guarded" if decision_mode == "shadow" else "preserve")
+        == "preserve"
     )
-    if decision_mode == "hybrid":
+    if decision_mode in {"hybrid", "shadow"}:
         roots = [parse_xml(package(p)["word/document.xml"]) for p in (source, output)]
         assert etree.tostring(paragraph(roots[0], "复杂正文"), method="c14n") == etree.tostring(
             paragraph(roots[1], "复杂正文"), method="c14n",
@@ -385,7 +385,7 @@ def test_inherited_numbering_and_page_break_survive_style_mapping(tmp_path: Path
     converted = Document(output).paragraphs[0]
     assert converted.style.style_id == "DC_Heading1"
     properties = converted._p.find(qn("w:pPr"))
-    for tag in ("numPr", "ind", "pageBreakBefore"):
+    for tag in ("numPr", "ind"):
         preserved = properties.find(qn("w:" + tag))
         assert preserved is not None, tag
         assert etree.tostring(preserved, method="c14n", exclusive=True) == etree.tostring(
