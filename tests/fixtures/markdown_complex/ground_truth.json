@@ -1,0 +1,1372 @@
+{
+  "schema": "markdown-quality/v2",
+  "scope": "independent-manually-specified-complex-corpus",
+  "annotation_policy": "角色、目标级别和应修复项在分类运行前由业务结构定义；未用分类器输出生成标签。受控独立样本，非随机真实业务样本。长正文仅标首段，其余不扩大指标分母。",
+  "samples": [
+    {
+      "file": "report.md",
+      "document_type": "report",
+      "input_kind": "md",
+      "expected": [
+        {
+          "line": 1,
+          "text": "# 物资协同管理报告",
+          "role": "document-title",
+          "needs_repair": true
+        },
+        {
+          "line": 3,
+          "text": "单位：示例电力公司",
+          "role": "organization",
+          "needs_repair": true
+        },
+        {
+          "line": 5,
+          "text": "部门：物资部",
+          "role": "department",
+          "needs_repair": true
+        },
+        {
+          "line": 7,
+          "text": "作者：张三、李四",
+          "role": "author",
+          "needs_repair": true
+        },
+        {
+          "line": 9,
+          "text": "日期：2026年10月14日",
+          "role": "date",
+          "needs_repair": true
+        },
+        {
+          "line": 11,
+          "text": "## 配送中心管理模式",
+          "role": "heading-2",
+          "needs_repair": false
+        },
+        {
+          "line": 13,
+          "text": "配送中心承担需求汇总与车辆安排职责。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 15,
+          "text": "## 公司预算管理现状",
+          "role": "heading-2",
+          "needs_repair": false
+        },
+        {
+          "line": 17,
+          "text": "资金计划以批准金额为准。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 19,
+          "text": "第一章 入库业务",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 21,
+          "text": "（一）关于完善多级仓储物资协同配送与退役物资全过程管理的实施要求及组织保障机制",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 23,
+          "text": "岗位人员核对数量，登记差异和处理结果。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 25,
+          "text": "1. 实物核对",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 27,
+          "text": "核对名称和数量。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 29,
+          "text": "2. 凭证整理",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 31,
+          "text": "保留签收单据。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 33,
+          "text": "第二章 库存业务",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 35,
+          "text": "一、库存清单",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 37,
+          "text": "登记以下类别。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 39,
+          "text": "（1）电缆",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 41,
+          "text": "（2）变压器",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 43,
+          "text": "（3）开关",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 45,
+          "text": "记录数量与金额。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 47,
+          "text": "二、需要统筹考虑的配送组织因素",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 49,
+          "text": "结合需求选择车型。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 51,
+          "text": "1 范围",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 53,
+          "text": "1.1 配送区域",
+          "role": "heading-4",
+          "needs_repair": true
+        },
+        {
+          "line": 55,
+          "text": "区域边界由需求地点确定。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 57,
+          "text": "1.2 时间要求",
+          "role": "heading-4",
+          "needs_repair": true
+        },
+        {
+          "line": 59,
+          "text": "应当按约定时间完成配送。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 61,
+          "text": "附录A 核查记录",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 63,
+          "text": "1 范围",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 65,
+          "text": "1.1 记录字段",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 67,
+          "text": "填写物资名称、数量和日期。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 69,
+          "text": "2 处置记录",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 71,
+          "text": "归档处理结果。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        }
+      ]
+    },
+    {
+      "file": "spec.md",
+      "document_type": "specification",
+      "input_kind": "md",
+      "expected": [
+        {
+          "line": 1,
+          "text": "# 仓储辅助服务规范书",
+          "role": "document-title",
+          "needs_repair": true
+        },
+        {
+          "line": 3,
+          "text": "一、项目要求",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 5,
+          "text": "（一）服务范围",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 7,
+          "text": "1. 入库辅助",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 9,
+          "text": "登记到货数量。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 11,
+          "text": "2. 在库辅助",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 13,
+          "text": "核对库存账目。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 15,
+          "text": "（二）服务标准",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 17,
+          "text": "执行验收要求。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 19,
+          "text": "二、后续要求",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 21,
+          "text": "1. 后续入库",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 23,
+          "text": "核对实物和到货记录。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 25,
+          "text": "2. 后续在库",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 27,
+          "text": "核对账目和储位。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 29,
+          "text": "（二）执行标准",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 31,
+          "text": "按批准标准执行。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 33,
+          "text": "三、支持要求",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 35,
+          "text": "支持内容",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 37,
+          "text": "1. 凭证整理",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 39,
+          "text": "归档凭证。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 41,
+          "text": "2. 信息登记",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 43,
+          "text": "核对数据。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 45,
+          "text": "（二）执行要求",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 47,
+          "text": "记录核对结果。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 49,
+          "text": "1.1 需要根据需求组织车辆",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 51,
+          "text": "1.2 所有货物按照要求装箱",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 53,
+          "text": "（1）按照需求开展配送，确保按期到达。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 55,
+          "text": "1. 检查文件。\n2. 完成校验。",
+          "role": "preserved",
+          "needs_repair": false
+        },
+        {
+          "line": 58,
+          "text": "```markdown\n# 假标题\n一、示例\n```",
+          "role": "preserved",
+          "needs_repair": false
+        },
+        {
+          "line": 63,
+          "text": "| 名称 | 数量 |\n| --- | --- |\n| 电缆 | 100 |",
+          "role": "body-table",
+          "needs_repair": false
+        },
+        {
+          "line": 67,
+          "text": "表1 核对结果",
+          "role": "table-caption",
+          "needs_repair": true
+        }
+      ]
+    },
+    {
+      "file": "paper.md",
+      "document_type": "paper",
+      "input_kind": "md",
+      "expected": [
+        {
+          "line": 1,
+          "text": "# 仓储网络协同研究",
+          "role": "document-title",
+          "needs_repair": true
+        },
+        {
+          "line": 3,
+          "text": "——基于配送需求的分析",
+          "role": "document-subtitle",
+          "needs_repair": true
+        },
+        {
+          "line": 5,
+          "text": "张三、李四",
+          "role": "author",
+          "needs_repair": true
+        },
+        {
+          "line": 7,
+          "text": "示例研究院",
+          "role": "organization",
+          "needs_repair": true
+        },
+        {
+          "line": 9,
+          "text": "2026年10月14日",
+          "role": "date",
+          "needs_repair": true
+        },
+        {
+          "line": 11,
+          "text": "摘要：以物资需求归集与配送组织为研究对象。",
+          "role": "abstract-label",
+          "needs_repair": true
+        },
+        {
+          "line": 13,
+          "text": "关键词：仓储；配送",
+          "role": "keywords-label",
+          "needs_repair": true
+        },
+        {
+          "line": 15,
+          "text": "## 1. 研究范围",
+          "role": "heading-2",
+          "needs_repair": false
+        },
+        {
+          "line": 17,
+          "text": "### 1.1 研究对象",
+          "role": "heading-3",
+          "needs_repair": false
+        },
+        {
+          "line": 19,
+          "text": "1.1.1 样本边界",
+          "role": "heading-4",
+          "needs_repair": true
+        },
+        {
+          "line": 21,
+          "text": "保留 **重点** 和 [说明](https://example.com/a)，数量100。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 23,
+          "text": "1.1.2 校验口径",
+          "role": "heading-4",
+          "needs_repair": true
+        },
+        {
+          "line": 25,
+          "text": "按记录日期进行核对。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 27,
+          "text": "## 2. 结果",
+          "role": "heading-2",
+          "needs_repair": false
+        },
+        {
+          "line": 29,
+          "text": "检查编号、数量及位置。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 31,
+          "text": "参考文献",
+          "role": "reference-heading",
+          "needs_repair": true
+        },
+        {
+          "line": 33,
+          "text": "[1] 示例作者，仓储研究，2026。",
+          "role": "reference-entry",
+          "needs_repair": true
+        },
+        {
+          "line": 35,
+          "text": "附录B 数据定义",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 37,
+          "text": "（一）字段口径",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 39,
+          "text": "1. 金额",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 41,
+          "text": "金额单位为元。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 43,
+          "text": "2. 数量",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 45,
+          "text": "数量按计量单位登记。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 47,
+          "text": "> 一、引用内容\n> 正文不变。",
+          "role": "preserved",
+          "needs_repair": false
+        }
+      ]
+    },
+    {
+      "file": "standard.md",
+      "document_type": "standard",
+      "input_kind": "md",
+      "expected": [
+        {
+          "line": 1,
+          "text": "# 仓储作业标准",
+          "role": "document-title",
+          "needs_repair": true
+        },
+        {
+          "line": 3,
+          "text": "GB/T 1234—2026",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 5,
+          "text": "# 1 范围",
+          "role": "heading-1",
+          "needs_repair": false
+        },
+        {
+          "line": 7,
+          "text": "# 1.1 入库要求",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 9,
+          "text": "核对规格和数量。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 11,
+          "text": "# 1.1.1 实物核验",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 13,
+          "text": "登记结果。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 15,
+          "text": "# 1.2 储位记录",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 17,
+          "text": "记录储位和批次。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 19,
+          "text": "# 2 管理职责",
+          "role": "heading-1",
+          "needs_repair": false
+        },
+        {
+          "line": 21,
+          "text": "按职责执行核查。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 23,
+          "text": "附录C 序列检查",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 25,
+          "text": "一、检查内容",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 27,
+          "text": "（一）关键字段",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 29,
+          "text": "核对名称和数量。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 31,
+          "text": "（二）日期字段",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 33,
+          "text": "核对来源日期。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 35,
+          "text": "（1）不得改写业务数值",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 37,
+          "text": "（2）应根据记录核验数量",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 39,
+          "text": "    # 缩进代码\n    1.1 保留内容",
+          "role": "preserved",
+          "needs_repair": false
+        }
+      ]
+    },
+    {
+      "file": "long_spec.md",
+      "document_type": "long-report",
+      "input_kind": "md",
+      "expected": [
+        {
+          "line": 1,
+          "text": "# 长篇配送组织分析报告",
+          "role": "document-title",
+          "needs_repair": true
+        },
+        {
+          "line": 3,
+          "text": "第一章 区域1配送组织",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 5,
+          "text": "（一）配送范围",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 7,
+          "text": "1. 需求登记",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 9,
+          "text": "区域1的配送需求以审批记录为依据，需求方填报物资名称、规格、数量和接货时间。仓储人员核对库存记录与实物状态，发现差异后登记问题并组织复核。调度人员结合可用车型、物资重量和配送地点安排运输，施工队按约定时间完成接收，凭证交由经办人员归档。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 25,
+          "text": "2. 签收归档",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 27,
+          "text": "归档签收凭证，登记退回物资。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 29,
+          "text": "（二）异常处置",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 31,
+          "text": "处理差异并反馈需求方。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 33,
+          "text": "第二章 区域2配送组织",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 35,
+          "text": "（一）配送范围",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 37,
+          "text": "1. 需求登记",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 39,
+          "text": "区域2的配送需求以审批记录为依据，需求方填报物资名称、规格、数量和接货时间。仓储人员核对库存记录与实物状态，发现差异后登记问题并组织复核。调度人员结合可用车型、物资重量和配送地点安排运输，施工队按约定时间完成接收，凭证交由经办人员归档。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 55,
+          "text": "2. 签收归档",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 57,
+          "text": "归档签收凭证，登记退回物资。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 59,
+          "text": "（二）异常处置",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 61,
+          "text": "处理差异并反馈需求方。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 63,
+          "text": "第三章 区域3配送组织",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 65,
+          "text": "（一）配送范围",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 67,
+          "text": "1. 需求登记",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 69,
+          "text": "区域3的配送需求以审批记录为依据，需求方填报物资名称、规格、数量和接货时间。仓储人员核对库存记录与实物状态，发现差异后登记问题并组织复核。调度人员结合可用车型、物资重量和配送地点安排运输，施工队按约定时间完成接收，凭证交由经办人员归档。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 85,
+          "text": "2. 签收归档",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 87,
+          "text": "归档签收凭证，登记退回物资。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 89,
+          "text": "（二）异常处置",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 91,
+          "text": "处理差异并反馈需求方。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 93,
+          "text": "第四章 区域4配送组织",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 95,
+          "text": "（一）配送范围",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 97,
+          "text": "1. 需求登记",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 99,
+          "text": "区域4的配送需求以审批记录为依据，需求方填报物资名称、规格、数量和接货时间。仓储人员核对库存记录与实物状态，发现差异后登记问题并组织复核。调度人员结合可用车型、物资重量和配送地点安排运输，施工队按约定时间完成接收，凭证交由经办人员归档。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 115,
+          "text": "2. 签收归档",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 117,
+          "text": "归档签收凭证，登记退回物资。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 119,
+          "text": "（二）异常处置",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 121,
+          "text": "处理差异并反馈需求方。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 123,
+          "text": "第五章 区域5配送组织",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 125,
+          "text": "（一）配送范围",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 127,
+          "text": "1. 需求登记",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 129,
+          "text": "区域5的配送需求以审批记录为依据，需求方填报物资名称、规格、数量和接货时间。仓储人员核对库存记录与实物状态，发现差异后登记问题并组织复核。调度人员结合可用车型、物资重量和配送地点安排运输，施工队按约定时间完成接收，凭证交由经办人员归档。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 145,
+          "text": "2. 签收归档",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 147,
+          "text": "归档签收凭证，登记退回物资。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 149,
+          "text": "（二）异常处置",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 151,
+          "text": "处理差异并反馈需求方。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 153,
+          "text": "第六章 区域6配送组织",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 155,
+          "text": "（一）配送范围",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 157,
+          "text": "1. 需求登记",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 159,
+          "text": "区域6的配送需求以审批记录为依据，需求方填报物资名称、规格、数量和接货时间。仓储人员核对库存记录与实物状态，发现差异后登记问题并组织复核。调度人员结合可用车型、物资重量和配送地点安排运输，施工队按约定时间完成接收，凭证交由经办人员归档。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 175,
+          "text": "2. 签收归档",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 177,
+          "text": "归档签收凭证，登记退回物资。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 179,
+          "text": "（二）异常处置",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 181,
+          "text": "处理差异并反馈需求方。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 183,
+          "text": "第七章 区域7配送组织",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 185,
+          "text": "（一）配送范围",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 187,
+          "text": "1. 需求登记",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 189,
+          "text": "区域7的配送需求以审批记录为依据，需求方填报物资名称、规格、数量和接货时间。仓储人员核对库存记录与实物状态，发现差异后登记问题并组织复核。调度人员结合可用车型、物资重量和配送地点安排运输，施工队按约定时间完成接收，凭证交由经办人员归档。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 205,
+          "text": "2. 签收归档",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 207,
+          "text": "归档签收凭证，登记退回物资。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 209,
+          "text": "（二）异常处置",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 211,
+          "text": "处理差异并反馈需求方。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 213,
+          "text": "第八章 区域8配送组织",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 215,
+          "text": "（一）配送范围",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 217,
+          "text": "1. 需求登记",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 219,
+          "text": "区域8的配送需求以审批记录为依据，需求方填报物资名称、规格、数量和接货时间。仓储人员核对库存记录与实物状态，发现差异后登记问题并组织复核。调度人员结合可用车型、物资重量和配送地点安排运输，施工队按约定时间完成接收，凭证交由经办人员归档。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 235,
+          "text": "2. 签收归档",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 237,
+          "text": "归档签收凭证，登记退回物资。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 239,
+          "text": "（二）异常处置",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 241,
+          "text": "处理差异并反馈需求方。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 243,
+          "text": "第九章 区域9配送组织",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 245,
+          "text": "（一）配送范围",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 247,
+          "text": "1. 需求登记",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 249,
+          "text": "区域9的配送需求以审批记录为依据，需求方填报物资名称、规格、数量和接货时间。仓储人员核对库存记录与实物状态，发现差异后登记问题并组织复核。调度人员结合可用车型、物资重量和配送地点安排运输，施工队按约定时间完成接收，凭证交由经办人员归档。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 265,
+          "text": "2. 签收归档",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 267,
+          "text": "归档签收凭证，登记退回物资。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 269,
+          "text": "（二）异常处置",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 271,
+          "text": "处理差异并反馈需求方。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 273,
+          "text": "第十章 区域10配送组织",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 275,
+          "text": "（一）配送范围",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 277,
+          "text": "1. 需求登记",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 279,
+          "text": "区域10的配送需求以审批记录为依据，需求方填报物资名称、规格、数量和接货时间。仓储人员核对库存记录与实物状态，发现差异后登记问题并组织复核。调度人员结合可用车型、物资重量和配送地点安排运输，施工队按约定时间完成接收，凭证交由经办人员归档。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 295,
+          "text": "2. 签收归档",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 297,
+          "text": "归档签收凭证，登记退回物资。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 299,
+          "text": "（二）异常处置",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 301,
+          "text": "处理差异并反馈需求方。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 303,
+          "text": "第十一章 区域11配送组织",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 305,
+          "text": "（一）配送范围",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 307,
+          "text": "1. 需求登记",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 309,
+          "text": "区域11的配送需求以审批记录为依据，需求方填报物资名称、规格、数量和接货时间。仓储人员核对库存记录与实物状态，发现差异后登记问题并组织复核。调度人员结合可用车型、物资重量和配送地点安排运输，施工队按约定时间完成接收，凭证交由经办人员归档。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 325,
+          "text": "2. 签收归档",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 327,
+          "text": "归档签收凭证，登记退回物资。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 329,
+          "text": "（二）异常处置",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 331,
+          "text": "处理差异并反馈需求方。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 333,
+          "text": "第十二章 区域12配送组织",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "line": 335,
+          "text": "（一）配送范围",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 337,
+          "text": "1. 需求登记",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 339,
+          "text": "区域12的配送需求以审批记录为依据，需求方填报物资名称、规格、数量和接货时间。仓储人员核对库存记录与实物状态，发现差异后登记问题并组织复核。调度人员结合可用车型、物资重量和配送地点安排运输，施工队按约定时间完成接收，凭证交由经办人员归档。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 355,
+          "text": "2. 签收归档",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "line": 357,
+          "text": "归档签收凭证，登记退回物资。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "line": 359,
+          "text": "（二）异常处置",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "line": 361,
+          "text": "处理差异并反馈需求方。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        }
+      ]
+    },
+    {
+      "file": "doc_import.json",
+      "document_type": "legacy-doc-import",
+      "input_kind": "doc",
+      "expected": [
+        {
+          "text": "DOC导入服务报告",
+          "role": "document-title",
+          "needs_repair": true
+        },
+        {
+          "text": "一、服务要求",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "text": "支持内容",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "text": "1. 入库辅助",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "text": "核对实物。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "text": "2. 在库辅助",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "text": "核对账目。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "text": "（二）执行要求",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "text": "登记结果。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "text": "附录A 核对说明",
+          "role": "heading-1",
+          "needs_repair": true
+        },
+        {
+          "text": "1 范围",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "text": "1.1 字段口径",
+          "role": "heading-3",
+          "needs_repair": true
+        },
+        {
+          "text": "金额以元为单位。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        },
+        {
+          "text": "2 核验",
+          "role": "heading-2",
+          "needs_repair": true
+        },
+        {
+          "text": "核验数量和日期。",
+          "role": "body-paragraph",
+          "needs_repair": false
+        }
+      ]
+    }
+  ]
+}

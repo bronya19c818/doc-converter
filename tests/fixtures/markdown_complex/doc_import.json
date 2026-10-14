@@ -1,0 +1,77 @@
+[
+  {
+    "text": "DOC导入服务报告",
+    "role": "document-title",
+    "needs_repair": true
+  },
+  {
+    "text": "一、服务要求",
+    "role": "heading-1",
+    "needs_repair": true
+  },
+  {
+    "text": "支持内容",
+    "role": "heading-2",
+    "needs_repair": true
+  },
+  {
+    "text": "1. 入库辅助",
+    "role": "heading-3",
+    "needs_repair": true
+  },
+  {
+    "text": "核对实物。",
+    "role": "body-paragraph",
+    "needs_repair": false
+  },
+  {
+    "text": "2. 在库辅助",
+    "role": "heading-3",
+    "needs_repair": true
+  },
+  {
+    "text": "核对账目。",
+    "role": "body-paragraph",
+    "needs_repair": false
+  },
+  {
+    "text": "（二）执行要求",
+    "role": "heading-2",
+    "needs_repair": true
+  },
+  {
+    "text": "登记结果。",
+    "role": "body-paragraph",
+    "needs_repair": false
+  },
+  {
+    "text": "附录A 核对说明",
+    "role": "heading-1",
+    "needs_repair": true
+  },
+  {
+    "text": "1 范围",
+    "role": "heading-2",
+    "needs_repair": true
+  },
+  {
+    "text": "1.1 字段口径",
+    "role": "heading-3",
+    "needs_repair": true
+  },
+  {
+    "text": "金额以元为单位。",
+    "role": "body-paragraph",
+    "needs_repair": false
+  },
+  {
+    "text": "2 核验",
+    "role": "heading-2",
+    "needs_repair": true
+  },
+  {
+    "text": "核验数量和日期。",
+    "role": "body-paragraph",
+    "needs_repair": false
+  }
+]
