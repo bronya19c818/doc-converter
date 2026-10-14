@@ -375,13 +375,22 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
             )
             output_name = safe_docx_filename(normalized.metadata.get("title"), job.source_name)
             staged_output = job_directory / "work" / "render-candidate.docx"
-            render_docx(
+            rendered = render_docx(
                 markdown=normalized.markdown,
                 role_decisions=normalized.report["decisions"],
                 style_pack=style_pack,
                 output_path=staged_output,
                 work_dir=job_directory / "work",
             )
+            try:
+                (job_directory / "output-verification.json").write_text(
+                    json.dumps(rendered.verification, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                report_artifacts.append("output-verification.json")
+            except OSError:
+                processing_warnings.append("输出格式校验报告未能保存。")
+            if not rendered.verification["passed"]:
+                processing_warnings.append(f"输出格式复核发现 {rendered.verification['failed_checks']} 项差异，详见输出校验报告。")
             staged_output.replace(job_directory / output_name)
             render_revision = job.render_revision + 1
             preview_path = job_directory / "preview" / f"document-{render_revision}.pdf"
@@ -495,7 +504,7 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
 
         @app.get("/")
         def frontend() -> FileResponse:
-            return FileResponse(index_path)
+            return FileResponse(index_path, headers={"Cache-Control": "no-cache"})
 
     return app
 

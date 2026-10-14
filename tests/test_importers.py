@@ -139,3 +139,35 @@ def test_resolve_libreoffice_prefers_console_launcher_before_gui_executable(monk
 
     assert resolved == Path(r"C:\Program Files\LibreOffice\program\soffice.com")
     assert calls == ["soffice.com"]
+
+
+def test_docx_title_probe_accepts_ooxml_start_alignment(tmp_path):
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    from doc_converter.importers.docx import _promote_docx_title_area
+
+    path = tmp_path / "start.docx"
+    doc = Document()
+    p = doc.add_paragraph("普通正文")
+    jc = OxmlElement("w:jc")
+    jc.set(qn("w:val"), "start")
+    p._p.get_or_add_pPr().append(jc)
+    doc.save(path)
+    assert _promote_docx_title_area("普通正文", path) == "普通正文"
+
+
+def test_docx_native_title_is_recovered_even_when_pandoc_omits_it(tmp_path):
+    from docx import Document
+
+    from doc_converter.importers.docx import _promote_docx_title_area
+
+    path = tmp_path / "title.docx"
+    doc = Document()
+    doc.add_paragraph("DOC导入服务报告", style="Title")
+    doc.add_paragraph("一、服务要求")
+    doc.save(path)
+    text = _promote_docx_title_area("一、服务要求", path)
+    assert "title: DOC导入服务报告" in text
+    assert "一、服务要求" in text

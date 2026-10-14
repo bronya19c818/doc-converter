@@ -23,6 +23,7 @@ from doc_converter.docx_postprocess import (
     split_metadata,
 )
 from doc_converter.docx_styles import ROLE_TO_STYLE_ID, compile_styles
+from doc_converter.markdown_verification import verify_rendered_roles
 from doc_converter.normalizer import _code_line_indices, normalize_markdown
 from doc_converter.style_library import StylePack
 
@@ -38,6 +39,7 @@ class RenderResult:
     output_path: Path
     reference_docx_path: Path
     pandoc_path: Path
+    verification: dict[str, Any]
 
 
 def render_docx(
@@ -120,7 +122,8 @@ def render_docx(
     )
     document.save(str(output_path))
     restore_endnotes(output_path, markdown)
-    return RenderResult(output_path=output_path, reference_docx_path=reference_path, pandoc_path=resolved_pandoc)
+    return RenderResult(output_path=output_path, reference_docx_path=reference_path, pandoc_path=resolved_pandoc,
+                        verification=verify_rendered_roles(output_path, role_decisions, style_pack))
 
 
 def metadata_reference_definitions(body: str) -> str:

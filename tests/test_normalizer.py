@@ -14,7 +14,7 @@ def test_confirmed_document_title_is_moved_to_front_matter() -> None:
         confirmed_roles={1: "document-title"},
     )
 
-    assert result.markdown.startswith("---\nschema: normalized-md/v1\ntitle: 项目建设方案\n---")
+    assert result.markdown.startswith("---\nschema: normalized-md/v2\ntitle: 项目建设方案\n---")
     assert "# 一、建设背景" in result.markdown
     assert "# 项目建设方案" not in result.markdown
     assert result.report["changes"] == [
@@ -368,9 +368,9 @@ def test_flat_atx_headings_are_releveled_from_chinese_and_numeric_numbering() ->
     result = normalize_markdown(source, filename="采购方案.md", confirmed_roles={})
 
     assert result.metadata["title"] == "采购数字化实施路径及典型场景"
-    assert "## （一）实施路径" in result.markdown
-    assert "### 1. 连接集成全量要素数据" in result.markdown
-    assert "#### （1）数据治理要求" in result.markdown
+    assert "# （一）实施路径" in result.markdown
+    assert "## 1. 连接集成全量要素数据" in result.markdown
+    assert "### （1）数据治理要求" in result.markdown
     assert any(change["to"] == "heading-level" for change in result.report["changes"])
 
 
@@ -428,9 +428,9 @@ def test_technical_standard_numbered_headings_support_bare_subheadings() -> None
 
     result = normalize_markdown(source, filename="标准.md", confirmed_roles={})
 
-    assert "## 5 盘点分类" in result.markdown
-    assert "### 5.1 盘点范围" in result.markdown
-    assert "#### 5.1.1 全面盘点" in result.markdown
+    assert "# 5 盘点分类" in result.markdown
+    assert "## 5.1 盘点范围" in result.markdown
+    assert "### 5.1.1 全面盘点" in result.markdown
 
 
 def test_technical_standard_bare_root_and_decimal_headings_are_promoted() -> None:
@@ -445,9 +445,9 @@ def test_technical_standard_bare_root_and_decimal_headings_are_promoted() -> Non
 
     result = normalize_markdown(source, filename="标准.md", confirmed_roles={})
 
-    assert "## 1 范围" in result.markdown
-    assert "### 1.1 适用范围" in result.markdown
-    assert "#### 1.1.1 特殊范围" in result.markdown
+    assert "# 1 范围" in result.markdown
+    assert "## 1.1 适用范围" in result.markdown
+    assert "### 1.1.1 特殊范围" in result.markdown
 
 
 def test_flattened_heading_siblings_keep_the_same_level() -> None:

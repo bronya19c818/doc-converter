@@ -44,7 +44,7 @@ def split_metadata(markdown: str) -> tuple[dict[str, Any], str]:
     """Remove Front Matter before Pandoc and return normalized metadata."""
 
     raw_metadata, lines, _ = _extract_front_matter(markdown)
-    if raw_metadata.get("schema") != "normalized-md/v1":
+    if raw_metadata.get("schema") not in {"normalized-md/v1", "normalized-md/v2"}:
         normalized = normalize_markdown(markdown, filename="document.md")
         raw_metadata, lines, _ = _extract_front_matter(normalized.markdown)
     metadata = _normalize_metadata(raw_metadata)

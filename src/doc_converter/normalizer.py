@@ -88,7 +88,8 @@ def normalize_markdown(
     )
     content_lines = preprocessed.text.splitlines()
     metadata = _normalize_metadata(raw_metadata)
-    blocks, context = analyze_markdown(content_lines, metadata, preprocessed.line_map)
+    blocks, context = analyze_markdown(content_lines, metadata, preprocessed.line_map,
+                                       canonical=raw_metadata.get("schema") == "normalized-md/v2")
     changes: list[dict[str, Any]] = list(preprocessed.changes)
     replacements: dict[int, tuple[int, list[str]]] = {}
     consumed: set[int] = set()
@@ -195,7 +196,7 @@ def _extract_front_matter(source: str) -> tuple[dict[str, Any], list[str], int]:
 
 
 def _serialize_front_matter(metadata: dict[str, Any], body: str) -> str:
-    ordered: dict[str, Any] = {"schema": "normalized-md/v1"}
+    ordered: dict[str, Any] = {"schema": "normalized-md/v2"}
     for key in _METADATA_KEYS:
         if key in metadata and metadata[key] not in (None, "", []):
             ordered[key] = metadata[key]

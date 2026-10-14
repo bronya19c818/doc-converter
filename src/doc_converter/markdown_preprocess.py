@@ -263,6 +263,8 @@ def _repair_broken_paragraph_lines(
 def _should_merge_fragment(previous: str, current: str) -> bool:
     previous = previous.strip()
     current = current.strip()
+    if previous.startswith(("——", "—", "--")):
+        return False
     if not previous or not current or _is_structural_start(current):
         return False
     if _is_structural_start(previous) or previous.startswith(("- ", "* ", "+ ", "> ")):
@@ -281,7 +283,7 @@ def _should_merge_fragment(previous: str, current: str) -> bool:
 
 
 def _is_structural_start(value: str) -> bool:
-    first = value.strip()
+    first = _unescape_ordered_heading_marker(value).strip()
     if first in {"摘要", "关键词"} or first.startswith(("#", "|", "```", "~~~")) or _TITLE_AREA_LABEL_PATTERN.match(first):
         return True
     if _heading_kind(first, standard_document=False) is not None:
