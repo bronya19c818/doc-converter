@@ -3,13 +3,8 @@ import {
   IconArrowsMaximize,
   IconArrowsMinimize,
   IconArrowsLeftRight,
-  IconCircleCheck,
-  IconDeviceFloppy,
   IconDownload,
-  IconFilePlus,
   IconFileText,
-  IconInfoCircle,
-  IconPencil,
   IconSettings,
   IconUpload,
   IconX,
@@ -19,16 +14,12 @@ import {
   artifactUrl,
   createJob,
   createStylePack,
-  fetchArtifactText,
-  getJobDraft,
   Job,
   listStylePacks,
   normalizeAndRender,
   normalizeDocxDirect,
   previewUrl,
-  saveDraft,
   StylePack,
-  Suggestion,
 } from './api'
 import { DocxPreview, preloadDocxPreview } from './DocxPreview'
 import { StyleEditor } from './StyleEditor'
@@ -36,28 +27,10 @@ import './styles.css'
 
 type SettingsTab = 'styles' | 'page'
 
-const SUGGESTION_ROLE_LABELS: Record<string, string> = {
-  'document-title': '文档标题',
-  'document-subtitle': '副标题',
-  author: '作者',
-  organization: '单位',
-  department: '部门',
-  date: '日期',
-  abstract: '摘要',
-  keywords: '关键词',
-}
-
-function isMarkdownFile(filename: string): boolean {
-  const normalizedName = filename.toLowerCase()
-  return normalizedName.endsWith('.md') || normalizedName.endsWith('.markdown')
-}
-
 export function App() {
   const [stylePacks, setStylePacks] = useState<StylePack[]>([])
   const [selectedPackId, setSelectedPackId] = useState('')
   const [sourceFile, setSourceFile] = useState<File | null>(null)
-  const [sourceMarkdown, setSourceMarkdown] = useState('')
-  const [originalMarkdown, setOriginalMarkdown] = useState('')
   const [job, setJob] = useState<Job | null>(null)
   const [newPackName, setNewPackName] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -77,7 +50,6 @@ export function App() {
     () => stylePacks.find((pack) => pack.id === selectedPackId) ?? null,
     [selectedPackId, stylePacks],
   )
-  const markdownChanged = sourceMarkdown !== originalMarkdown
   const completedJob = job?.status === 'completed' ? job : null
   const directMode = sourceFile?.name.toLowerCase().endsWith('.docx') ?? false
 
@@ -112,121 +84,36 @@ export function App() {
     }
   }
 
-  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    if (busy) return
     const file = event.target.files?.[0] ?? null
     setSourceFile(file)
     setJob(null)
     setSettingsTab('styles')
     setDownloadsOpen(false)
     setError(null)
-    if (file) {
-      void preloadDocxPreview().catch(() => undefined)
-      if (isMarkdownFile(file.name)) {
-        const text = await file.text()
-        setSourceMarkdown(text)
-        setOriginalMarkdown(text)
-      } else {
-        setSourceMarkdown('')
-        setOriginalMarkdown('')
-      }
-    } else {
-      setSourceMarkdown('')
-      setOriginalMarkdown('')
-    }
-  }
-
-  async function handlePrepare() {
-    if (!sourceFile || !selectedPack) return
-    setBusy(true)
-    setError(null)
-    setDownloadsOpen(false)
-    try {
-      const created = await createJob(sourceFile, selectedPack, 'round-trip')
-      const importedDraft = isMarkdownFile(sourceFile.name) ? null : await getJobDraft(created.id)
-      const importedMarkdown = importedDraft?.source_markdown ?? sourceMarkdown
-      const jobWithImportWarnings = importedDraft
-        ? { ...created, import_warnings: importedDraft.warnings }
-        : created
-      const prepared = await persistHighConfidenceSuggestions(jobWithImportWarnings, importedMarkdown)
-      setJob(prepared.job)
-      setSourceMarkdown(prepared.markdown)
-      setOriginalMarkdown(prepared.markdown)
-    } catch (prepareError) {
-      setError(messageFor(prepareError))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handleSaveDraft() {
-    if (!job) return
-    setBusy(true)
-    setError(null)
-    try {
-      const saved = await saveDraft(job.id, sourceMarkdown)
-      const prepared = await persistHighConfidenceSuggestions(saved, sourceMarkdown)
-      setJob(prepared.job)
-      setSourceMarkdown(prepared.markdown)
-      setOriginalMarkdown(prepared.markdown)
-    } catch (saveError) {
-      setError(messageFor(saveError))
-    } finally {
-      setBusy(false)
-    }
+    if (file) void preloadDocxPreview().catch(() => undefined)
   }
 
   async function handleRender() {
-    if (!selectedPack || (!job && !(directMode && sourceFile))) return
+    if (busy || !selectedPack || !sourceFile) return
     setBusy(true)
     setIsRendering(true)
     setError(null)
     setDownloadsOpen(false)
     try {
-      const currentJob = job ?? await createJob(sourceFile!, selectedPack, 'docx-direct')
+      const currentJob = job ?? await createJob(sourceFile, selectedPack, directMode ? 'docx-direct' : 'round-trip')
       if (!job) setJob(currentJob)
       const renderedJob = directMode
         ? await normalizeDocxDirect(currentJob.id, selectedPack)
-        : await normalizeAndRender(currentJob.id, sourceMarkdown, {}, selectedPack)
+        : await normalizeAndRender(currentJob.id, selectedPack)
       setJob(renderedJob)
-      if (directMode) return
-      if (renderedJob.artifacts.includes('document.normalized.md')) {
-        try {
-          const normalizedMarkdown = await fetchArtifactText(
-            renderedJob.id,
-            'document.normalized.md',
-            renderedJob.render_revision,
-          )
-          setSourceMarkdown(normalizedMarkdown)
-          setOriginalMarkdown(normalizedMarkdown)
-        } catch (artifactError) {
-          setOriginalMarkdown(sourceMarkdown)
-          setError(`文档已生成，但规范化工作区未能载入：${messageFor(artifactError)}`)
-        }
-      } else {
-        setOriginalMarkdown(sourceMarkdown)
-      }
     } catch (renderError) {
       setError(messageFor(renderError))
     } finally {
       setIsRendering(false)
       setBusy(false)
     }
-  }
-
-  function applySuggestion(suggestion: Suggestion) {
-    setSourceMarkdown((current) => applyRoleToMarkdown(current, suggestion))
-  }
-
-  async function persistHighConfidenceSuggestions(initialJob: Job, markdown: string): Promise<{ job: Job; markdown: string }> {
-    let currentJob = initialJob
-    let currentMarkdown = markdown
-    for (let attempt = 0; attempt < 4; attempt += 1) {
-      const nextMarkdown = applyHighConfidenceSuggestions(currentMarkdown, currentJob.suggestions)
-      if (nextMarkdown === currentMarkdown) return { job: currentJob, markdown: currentMarkdown }
-      currentMarkdown = nextMarkdown
-      currentJob = await saveDraft(currentJob.id, currentMarkdown)
-    }
-    return { job: currentJob, markdown: currentMarkdown }
   }
 
   function openSettings() {
@@ -347,7 +234,7 @@ export function App() {
       </header>
 
       <section className="workspace" aria-label="文档格式转换工作区">
-        <section className="markdown-panel" aria-label="源文件工作区">
+        <section className="source-panel" aria-label="源文件工作区">
           <div className="panel-title">
             <span className="section-number">01</span>
             <div>
@@ -366,6 +253,7 @@ export function App() {
               aria-label="选择文件"
               className="file-input-hidden"
               id="source-file"
+              disabled={busy}
               onChange={handleFileChange}
               type="file"
             />
@@ -374,57 +262,20 @@ export function App() {
             </span>
           </div>
           <p className="field-help source-help">源文件不会被改动。</p>
-          {directMode ? <p className="direct-mode-help">直接为识别出的段落应用样式，保留原文档的表格合并、图片和页面布局。完成后可预览、下载 DOCX 和处理报告。</p> : <>
-          <div className="editor-label-row">
-            <label className="editor-label" htmlFor="markdown-draft">
-              <IconPencil aria-hidden="true" size={22} stroke={1.8} />
-              内容工作区
-            </label>
-            <span className="editor-support"><IconInfoCircle aria-hidden="true" size={17} />Markdown</span>
-          </div>
-          <textarea
-            aria-label="内容工作区"
-            className="markdown-editor"
-            id="markdown-draft"
-            onChange={(event) => setSourceMarkdown(event.target.value)}
-            placeholder="选择文件后，可在这里编辑 Markdown 内容工作副本。"
-            value={sourceMarkdown}
-          />
+          <p className="conversion-help">
+            {directMode ? '自动识别段落并应用样式，保留表格、图片和页面布局。' : '自动识别标题层级和文前信息，统一格式并生成 DOCX。'}
+          </p>
           {job?.import_warnings?.length ? (
-            <p className="field-help" role="status">
-              导入提示：{job.import_warnings.join('；')}
-            </p>
+            <p className="field-help" role="status">导入提示：{job.import_warnings.join('；')}</p>
           ) : null}
-          <div className="draft-status" role="status">
-            <IconCircleCheck aria-hidden="true" size={18} />
-            {markdownChanged ? '有未保存修改' : '工作区已保存'}
-          </div>
-          </>}
-          {!directMode ? <div className="draft-actions">
-            <button className="secondary-action primary-draft-action" disabled={busy || !sourceFile || !selectedPack} onClick={handlePrepare} type="button">
-              <IconFilePlus aria-hidden="true" size={20} />
-              {job ? '重新建立工作副本' : '建立本地工作副本'}
-            </button>
-            <button className="secondary-action" disabled={busy || !job || !markdownChanged} onClick={handleSaveDraft} type="button">
-              <IconDeviceFloppy aria-hidden="true" size={20} />保存工作副本
-            </button>
-          </div> : null}
-
-          {!directMode && job?.suggestions.length ? (
-            <section className="suggestions" aria-label="结构建议">
-              <h3>结构建议</h3>
-              <p className="field-help">置信度超过90%的建议会自动应用，其余建议可手动应用。</p>
-              {job.suggestions.map((suggestion) => (
-                <article key={`${suggestion.line}-${suggestion.role}`}>
-                  <strong>第 {suggestion.line} 行：{SUGGESTION_ROLE_LABELS[suggestion.role] ?? suggestion.role}</strong>
-                  <p>{suggestion.reason}，置信度 {Math.round(suggestion.score * 100)}%。</p>
-                  <button className="text-action" onClick={() => applySuggestion(suggestion)} type="button">
-                    应用为{SUGGESTION_ROLE_LABELS[suggestion.role] ?? suggestion.role}
-                  </button>
-                </article>
-              ))}
-            </section>
+          {job?.processing_warnings?.length ? (
+            <p className="field-help" role="status">{job.processing_warnings.join('；')}</p>
           ) : null}
+          <ol className="conversion-steps" aria-label="转换步骤">
+            <li>选择源文件</li>
+            <li>点击开始转换</li>
+            <li>预览并下载 DOCX</li>
+          </ol>
           {error ? <p className="error-message" role="alert">{error}</p> : null}
         </section>
 
@@ -548,7 +399,7 @@ export function App() {
             {settingsTab === 'styles' ? (
               <div aria-labelledby="settings-tab-styles" id="settings-panel-styles" role="tabpanel">
                 <label className="field-label" htmlFor="style-pack">DOCX 样式组合</label>
-                <select id="style-pack" onChange={(event) => setSelectedPackId(event.target.value)} value={selectedPackId}>
+                <select disabled={busy} id="style-pack" onChange={(event) => setSelectedPackId(event.target.value)} value={selectedPackId}>
                   {stylePacks.map((pack) => <option key={pack.id} value={pack.id}>{pack.name} · v{pack.version}</option>)}
                 </select>
                 <form className="new-pack-form" onSubmit={handleCreateStylePack}>
@@ -594,9 +445,9 @@ export function App() {
 
       <div aria-label="快捷操作" className="floating-actions">
         <button
-          aria-label={isRendering ? '正在转换' : '生成'}
+          aria-label={isRendering ? '正在转换' : '开始转换'}
           className="action-fab generate-fab"
-          disabled={busy || !selectedPack || (directMode ? !sourceFile : !job || !sourceMarkdown.trim())}
+          disabled={busy || !selectedPack || !sourceFile}
           onClick={handleRender}
           type="button"
         >
@@ -608,7 +459,7 @@ export function App() {
             aria-expanded={downloadsOpen}
             aria-label="下载"
             className="action-fab download-fab"
-            disabled={!completedJob}
+            disabled={busy || !completedJob}
             onClick={() => setDownloadsOpen((open) => !open)}
             type="button"
           >
@@ -617,9 +468,9 @@ export function App() {
           </button>
           {downloadsOpen && completedJob ? (
             <div aria-label="任务产物下载" className="download-popover">
-              {completedJob.artifacts.map((artifact) => (
-                <a href={artifactUrl(completedJob.id, artifact)} key={artifact}>
-                  {artifact === completedJob.output_name ? '下载 DOCX' : `下载 ${artifact}`}
+              {completedJob.artifacts.filter((artifact) => artifact === completedJob.output_name || artifact === 'normalization-report.json' || artifact === 'docx-normalization-report.json').map((artifact) => (
+                <a href={artifactUrl(completedJob.id, artifact, completedJob.render_revision)} key={artifact}>
+                  {artifact === completedJob.output_name ? '下载 DOCX' : '下载处理报告'}
                 </a>
               ))}
             </div>
@@ -642,129 +493,7 @@ export function App() {
   )
 }
 
-export function applyRoleToMarkdown(markdown: string, suggestion: Suggestion): string {
-  const key = metadataKeyForRole(suggestion.role)
-  if (!key) return markdown
-
-  const lines = markdown.split(/\r?\n/)
-  const selectedIndex = findSuggestionLine(lines, suggestion)
-  if (selectedIndex < 0) return markdown
-  const rawValue = extractSuggestionValue(lines[selectedIndex], suggestion.role)
-  if (!rawValue) return markdown
-
-  const removeEnd = Math.min(
-    lines.length - 1,
-    selectedIndex + Math.max(0, (suggestion.end_line ?? suggestion.line) - suggestion.line),
-  )
-  const bodyLines = lines.filter((_, index) => index < selectedIndex || index > removeEnd)
-  const entry = formatMetadataEntry(key, rawValue)
-  const frontMatterStart = lines[0]?.trim() === '---' ? 0 : -1
-  if (frontMatterStart >= 0) {
-    const closingIndex = lines.findIndex((line, index) => index > 0 && line.trim() === '---')
-    if (closingIndex > 0) {
-      const metadataLines = lines.slice(1, closingIndex)
-      const updatedMetadata = replaceMetadataEntry(metadataLines, key, entry)
-      const updatedLines = ['---', ...updatedMetadata, '---', ...bodyLines.slice(closingIndex + 1)]
-      return trimMarkdownLines(updatedLines)
-    }
-  }
-  return trimMarkdownLines(['---', ...entry, '---', '', ...bodyLines])
-}
-
-export function applyHighConfidenceSuggestions(markdown: string, suggestions: Suggestion[]): string {
-  return suggestions
-    .filter((suggestion) => suggestion.score > 0.9)
-    .slice()
-    .sort((left, right) => right.line - left.line)
-    .reduce((current, suggestion) => applyRoleToMarkdown(current, suggestion), markdown)
-}
-
-function metadataKeyForRole(role: string): string | null {
-  const keys: Record<string, string> = {
-    'document-title': 'title',
-    'document-subtitle': 'subtitle',
-    author: 'authors',
-    authors: 'authors',
-    organization: 'organization',
-    department: 'department',
-    date: 'date',
-    abstract: 'abstract',
-    keywords: 'keywords',
-  }
-  return keys[role] ?? null
-}
-
-function findSuggestionLine(lines: string[], suggestion: Suggestion): number {
-  const expectedIndex = Math.min(lines.length - 1, Math.max(0, suggestion.line - 1))
-  if (suggestion.value && lineMatchesSuggestion(lines[expectedIndex] ?? '', suggestion.value)) {
-    return expectedIndex
-  }
-  if (!suggestion.value) return expectedIndex
-  const normalizedValue = suggestion.value.trim()
-  const fallback = lines.findIndex((line) => line.trim() === normalizedValue)
-  if (fallback >= 0) return fallback
-  return lines.findIndex((line) => line.includes(normalizedValue))
-}
-
-function lineMatchesSuggestion(line: string, value: string): boolean {
-  const normalizedLine = line.trim()
-  const normalizedValue = value.trim()
-  return normalizedLine === normalizedValue || normalizedLine.includes(normalizedValue)
-}
-
-function extractSuggestionValue(line: string, role: string): string {
-  const withoutHeading = line.trim().replace(/^#{1,6}\s+/, '')
-  const withoutLabel = withoutHeading.replace(
-    /^(摘要|关键词|作者单位|作者|单位|机构|组织|部门|所属部门|日期|时间|发布时间)\s*[:：]\s*/,
-    '',
-  )
-  if (role === 'keywords') {
-    return withoutLabel
-      .split(/[；;，,\n]+/)
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .join('\n')
-  }
-  return withoutLabel.trim()
-}
-
-function formatMetadataEntry(key: string, value: string): string[] {
-  if (key === 'authors' || key === 'keywords') {
-    const values = value.split(/[、，,;；\n]+/).map((item) => item.trim()).filter(Boolean)
-    return [
-      `${key}:`,
-      ...values.map((item) => `  - ${item}`),
-    ]
-  }
-  return [`${key}: ${value}`]
-}
-
-function replaceMetadataEntry(metadataLines: string[], key: string, entry: string[]): string[] {
-  const result: string[] = []
-  let index = 0
-  let replaced = false
-  while (index < metadataLines.length) {
-    const line = metadataLines[index]
-    if (new RegExp(`^${key}:\\s*`).test(line)) {
-      if (!replaced) {
-        result.push(...entry)
-        replaced = true
-      }
-      index += 1
-      while (index < metadataLines.length && /^\s+-\s+/.test(metadataLines[index])) index += 1
-      continue
-    }
-    result.push(line)
-    index += 1
-  }
-  if (!replaced) result.push(...entry)
-  return result
-}
-
-function trimMarkdownLines(lines: string[]): string {
-  return `${lines.join('\n').replace(/^\n+/, '').replace(/\n+$/, '')}\n`
-}
-
 function messageFor(error: unknown): string {
   return error instanceof Error ? error.message : '发生未预期的本地处理错误。'
 }
+

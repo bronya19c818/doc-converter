@@ -506,8 +506,9 @@ keywords:
     }
     assert "DC_TableBody" in table_style_ids
     assert all(paragraph.style.style_id != "Heading 2" for paragraph in document.paragraphs)
-    assert "1. 第一项" in "\n".join(paragraph.text for paragraph in document.paragraphs)
-    assert all(paragraph._p.pPr is None or paragraph._p.pPr.numPr is None for paragraph in document.paragraphs)
+    list_items = [paragraph for paragraph in document.paragraphs if paragraph.text in {"第一项", "第二项"}]
+    assert len(list_items) == 2
+    assert all(paragraph._p.pPr is not None and paragraph._p.pPr.numPr is not None for paragraph in list_items)
     assert any(run.style and run.style.style_id == "DC_Point" for paragraph in document.paragraphs for run in paragraph.runs)
 
     with zipfile.ZipFile(output_path) as archive:
@@ -710,3 +711,4 @@ def _write_png(path, width: int, height: int) -> None:
         + chunk(b"IDAT", image_data)
         + chunk(b"IEND", b"")
     )
+

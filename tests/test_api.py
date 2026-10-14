@@ -9,10 +9,11 @@ from fastapi.testclient import TestClient
 
 import doc_converter.api as api_module
 import doc_converter.importers.doc as doc_importer_module
-from doc_converter.api import _suggest_semantic_roles, create_app
+from doc_converter.api import create_app
+from doc_converter.normalizer import normalize_markdown
 
 
-def test_local_api_creates_editable_job_saves_draft_and_renders_named_job(tmp_path) -> None:
+def test_local_api_creates_immutable_job_and_renders_named_job(tmp_path) -> None:
     client = TestClient(create_app(data_root=tmp_path))
 
     created_pack = client.post(
@@ -30,9 +31,7 @@ def test_local_api_creates_editable_job_saves_draft_and_renders_named_job(tmp_pa
     assert created_job.status_code == 201
     job = created_job.json()
     assert job["status"] == "ready"
-    assert job["suggestions"] == [
-        {"line": 1, "role": "document-title", "score": 0.9, "reason": "首个无编号 H1"}
-    ]
+    assert job["suggestions"] == []
     job_directory = tmp_path / "jobs" / job["id"]
     assert (job_directory / "source" / "original.md").read_text(encoding="utf-8") == (
         "# 实施方案\n\n# 一、建设背景\n\n正文。"
@@ -40,20 +39,13 @@ def test_local_api_creates_editable_job_saves_draft_and_renders_named_job(tmp_pa
     assert (job_directory / "source" / "imported.md").read_text(encoding="utf-8") == (
         "# 实施方案\n\n# 一、建设背景\n\n正文。"
     )
-    assert (job_directory / "work" / "source.md").read_text(encoding="utf-8") == (
-        "# 实施方案\n\n# 一、建设背景\n\n正文。"
-    )
-
-    draft = client.put(
-        f"/api/jobs/{job['id']}/draft",
-        json={"source_markdown": "---\ntitle: 实施方案\n---\n\n# 一、建设背景\n\n正文。"},
-    )
-    assert draft.status_code == 200
-    assert draft.json()["draft_updated_at"] is not None
+    assert not (job_directory / "work" / "source.md").exists()
+    draft = client.put(f"/api/jobs/{job['id']}/draft", json={"source_markdown": "# 编辑"})
+    assert draft.status_code == 410
 
     completed_job = client.post(
         f"/api/jobs/{job['id']}/normalize-and-render",
-        json={"source_markdown": "---\ntitle: 实施方案\n---\n\n# 一、建设背景\n\n正文。", "confirmed_roles": {}},
+        json={},
     )
     assert completed_job.status_code == 200
     assert completed_job.json()["status"] == "completed"
@@ -103,7 +95,7 @@ def test_api_imports_docx_media_and_returns_backend_working_copy(tmp_path, monke
 
     rendered = client.post(
         f"/api/jobs/{job['id']}/normalize-and-render",
-        json={"source_markdown": payload["source_markdown"], "confirmed_roles": {}},
+        json={},
     )
 
     assert rendered.status_code == 200, rendered.text
@@ -177,7 +169,7 @@ def test_api_direct_docx_job_preserves_source_and_exposes_audit(tmp_path, monkey
         len(row._tr.xpath("./w:tc")) for row in source_table.rows
     ]
     assert client.get(f"/api/jobs/{job['id']}/artifacts/docx-normalization-report.json").status_code == 200
-    assert client.post(f"/api/jobs/{job['id']}/normalize-and-render", json={"confirmed_roles": {}}).status_code == 409
+    assert client.post(f"/api/jobs/{job['id']}/normalize-and-render", json={}).status_code == 409
 
 
 def test_api_rejects_invalid_direct_mode_and_non_docx_source(tmp_path) -> None:
@@ -294,7 +286,7 @@ def _solid_png(color: tuple[int, int, int]) -> bytes:
     )
 
 
-def test_structure_suggestions_cover_all_title_area_roles() -> None:
+def test_automatic_decisions_cover_all_title_area_roles() -> None:
     source = """---
 title: 项目方案
 ---
@@ -318,12 +310,13 @@ title: 项目方案
 正文内容。
 """
 
-    suggestions = _suggest_semantic_roles(source)
+    decisions = normalize_markdown(source, filename="方案.md").report["decisions"]
+    suggestions = [d for d in decisions if d["role"] not in {"heading-1", "body-paragraph"} and not d["features"].get("front_matter")]
 
     assert {item["role"] for item in suggestions} == {
         "document-subtitle",
-        "abstract",
-        "keywords",
+        "abstract-label",
+        "keywords-label",
         "author",
         "organization",
         "department",
@@ -344,10 +337,13 @@ def test_api_renders_generated_comprehensive_fixture_without_subtitle_confirmati
     )
     assert created.status_code == 201
     job = created.json()
+    image_path = tmp_path / "jobs" / job["id"] / "images" / "architecture.svg"
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+    image_path.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="green"/></svg>', encoding="utf-8")
 
     completed = client.post(
         f"/api/jobs/{job['id']}/normalize-and-render",
-        json={"source_markdown": source, "confirmed_roles": {}},
+        json={},
     )
 
     assert completed.status_code == 200
@@ -381,8 +377,6 @@ def test_render_uses_current_style_pack_and_advances_render_revision(tmp_path) -
         },
     ).json()
     render_request = {
-        "source_markdown": "# 方案\n\n# 一、范围\n\n正文。",
-        "confirmed_roles": {},
         "style_pack_id": revised["id"],
         "style_pack_version": revised["version"],
     }
@@ -423,7 +417,7 @@ def test_render_precomputes_inline_pdf_preview_before_marking_job_completed(tmp_
     monkeypatch.setattr(api_module, "_convert_docx_to_pdf", fake_convert)
     rendered = client.post(
         f"/api/jobs/{job['id']}/normalize-and-render",
-        json={"source_markdown": source, "confirmed_roles": {}},
+        json={},
     )
     assert rendered.status_code == 200
     payload = rendered.json()
@@ -453,7 +447,7 @@ def test_preview_endpoint_retains_lazy_conversion_fallback(tmp_path, monkeypatch
     monkeypatch.setattr(api_module, "_convert_docx_to_pdf", lambda _source_path, _output_path: False)
     rendered = client.post(
         f"/api/jobs/{job['id']}/normalize-and-render",
-        json={"source_markdown": source, "confirmed_roles": {}},
+        json={},
     )
     assert rendered.status_code == 200
     assert rendered.json()["preview_ready"] is False
@@ -511,7 +505,7 @@ def test_style_pack_edit_creates_a_new_immutable_api_revision(tmp_path) -> None:
     assert next(pack for pack in listed if pack["id"] == original["id"])["version"] == 2
 
 
-def test_draft_endpoint_rejects_missing_source_markdown(tmp_path) -> None:
+def test_removed_draft_write_endpoint_returns_gone(tmp_path) -> None:
     client = TestClient(create_app(data_root=tmp_path))
     pack = client.post("/api/style-packs", json={"name": "项目报告", "format_id": "docx"}).json()
     job = client.post(
@@ -522,7 +516,7 @@ def test_draft_endpoint_rejects_missing_source_markdown(tmp_path) -> None:
 
     response = client.put(f"/api/jobs/{job['id']}/draft", json={})
 
-    assert response.status_code == 422
+    assert response.status_code == 410
 
 
 def test_data_root_environment_override_is_used_for_container_storage(tmp_path, monkeypatch) -> None:
@@ -533,3 +527,4 @@ def test_data_root_environment_override_is_used_for_container_storage(tmp_path, 
 
     assert response.status_code == 200
     assert (tmp_path / "style-packs").exists()
+

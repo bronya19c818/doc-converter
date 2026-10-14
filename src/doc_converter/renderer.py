@@ -7,6 +7,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from docx import Document
 
@@ -19,10 +20,10 @@ from doc_converter.docx_extensions import (
 )
 from doc_converter.docx_postprocess import (
     apply_postprocess,
-    protect_ordered_list_literals,
     split_metadata,
 )
-from doc_converter.docx_styles import compile_styles
+from doc_converter.docx_styles import ROLE_TO_STYLE_ID, compile_styles
+from doc_converter.normalizer import _code_line_indices, normalize_markdown
 from doc_converter.style_library import StylePack
 
 
@@ -46,6 +47,7 @@ def render_docx(
     output_path: Path,
     work_dir: Path,
     pandoc_path: Path | None = None,
+    role_decisions: list[dict[str, Any]] | None = None,
 ) -> RenderResult:
     """Render Markdown to an editable, self-contained DOCX without network access."""
 
@@ -53,15 +55,33 @@ def render_docx(
         raise ValueError("DOCX 渲染器只能使用 format_id 为 docx 的样式包。")
 
     resolved_pandoc = pandoc_path or resolve_pandoc()
+    work_dir = work_dir.resolve()
+    output_path = output_path.resolve()
     work_dir.mkdir(parents=True, exist_ok=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if role_decisions is None:
+        normalized = normalize_markdown(markdown, filename="document.md")
+        markdown = normalized.markdown
+        role_decisions = normalized.report["decisions"]
     metadata, body = split_metadata(markdown)
     body = extract_page_breaks(body)
     body, complex_tables = extract_complex_tables(body)
     source_path = work_dir / "document.body.md"
     reference_path = work_dir / "reference.docx"
-    source_path.write_text(protect_ordered_list_literals(body), encoding="utf-8")
+    source_path.write_text(body, encoding="utf-8")
     compile_reference_docx(style_pack, reference_path)
+    metadata_path = work_dir / "document.metadata.md"
+    metadata_path.write_text(metadata_markdown(metadata) + metadata_reference_definitions(body), encoding="utf-8")
+    filter_path = work_dir / "metadata.lua"
+    filter_path.write_text(
+        'function Pandoc(doc)\n'
+        '  local f = assert(io.open(os.getenv("DOC_CONVERTER_METADATA"), "r"))\n'
+        '  local content = f:read("*a"); f:close()\n'
+        '  local prefix = pandoc.read(content, "markdown+fenced_divs+bracketed_spans")\n'
+        '  prefix.blocks:extend(doc.blocks)\n'
+        '  doc.blocks = prefix.blocks\n'
+        '  return doc\nend\n', encoding="utf-8",
+    )
 
     command = [
         str(resolved_pandoc),
@@ -70,6 +90,7 @@ def render_docx(
         "--to=docx",
         "--standalone",
         f"--reference-doc={reference_path}",
+        f"--lua-filter={filter_path}",
         f"--output={output_path}",
     ]
     completed = subprocess.run(
@@ -79,6 +100,7 @@ def render_docx(
         encoding="utf-8",
         check=False,
         cwd=work_dir.parent,
+        env={**os.environ, "DOC_CONVERTER_METADATA": str(metadata_path.resolve())},
     )
     if completed.returncode != 0 or not output_path.exists():
         detail = completed.stderr.strip() or completed.stdout.strip() or "Pandoc 未生成 DOCX。"
@@ -92,12 +114,61 @@ def render_docx(
     max_image_width = image_settings.get("max_width_cm") if isinstance(image_settings, dict) else None
     apply_postprocess(
         document,
-        metadata,
+        {},
+        semantic_roles=role_decisions,
         max_image_width_cm=max_image_width if isinstance(max_image_width, (int, float)) else None,
     )
     document.save(str(output_path))
     restore_endnotes(output_path, markdown)
     return RenderResult(output_path=output_path, reference_docx_path=reference_path, pandoc_path=resolved_pandoc)
+
+
+def metadata_reference_definitions(body: str) -> str:
+    """Share link/note definitions with the metadata parser, including continuations."""
+    import re
+
+    lines = body.splitlines()
+    protected = _code_line_indices(body)
+    output: list[str] = []
+    index = 0
+    while index < len(lines):
+        if index not in protected and re.match(r"^ {0,3}\[[^]]+\]:", lines[index]):
+            output.append(lines[index])
+            index += 1
+            while index < len(lines) and (not lines[index].strip() or lines[index].startswith(("    ", "\t"))):
+                output.append(lines[index])
+                index += 1
+            output.append("")
+        else:
+            index += 1
+    return "\n".join(output) + "\n"
+
+
+def metadata_markdown(metadata: dict[str, Any]) -> str:
+    """Render metadata through Pandoc too, retaining links, emphasis and code."""
+    entries: list[tuple[str, str]] = []
+    for key, role in (("title", "document-title"), ("subtitle", "document-subtitle"),
+                      ("organization", "organization-department"), ("department", "organization-department"),
+                      ("authors", "author"), ("date", "date")):
+        value = metadata.get(key)
+        if isinstance(value, list):
+            value = "、".join(str(item) for item in value)
+        if isinstance(value, str) and value.strip():
+            entries.append((role, value))
+    for key, label in (("abstract", "摘要"), ("keywords", "关键词")):
+        value = metadata.get(key)
+        if isinstance(value, list):
+            value = "；".join(str(item) for item in value)
+        if isinstance(value, str) and value.strip():
+            value = value.removeprefix(label + "：").removeprefix(label + ":")
+            content_style = ROLE_TO_STYLE_ID[key + "-content"]
+            entries.append((key + "-label", f'{label}：[{value}]{{custom-style="{content_style}"}}'))
+    output: list[str] = []
+    for role, text in entries:
+        # Longer fences keep literal ::: lines inside metadata from ending a div.
+        fence = ":" * max(4, max((len(line) for line in text.splitlines() if line and set(line) == {":"}), default=0) + 1)
+        output.append(f'{fence} {{custom-style="{ROLE_TO_STYLE_ID[role]}"}}\n{text}\n{fence}\n')
+    return "\n".join(output) + ("\n" if output else "")
 
 
 def compile_reference_docx(style_pack: StylePack, output_path: Path) -> None:
@@ -129,3 +200,4 @@ def resolve_pandoc(*, bundled_root: Path | None = None) -> Path:
     if executable is None:
         raise RendererError("未找到内置或系统 Pandoc，无法生成 DOCX。")
     return Path(executable)
+

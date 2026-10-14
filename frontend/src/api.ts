@@ -6,15 +6,6 @@ export type StylePack = {
   roles: Record<string, Record<string, unknown>>
 }
 
-export type Suggestion = {
-  line: number
-  role: string
-  score: number
-  reason: string
-  value?: string
-  end_line?: number
-}
-
 export type Job = {
   id: string
   status: string
@@ -23,22 +14,15 @@ export type Job = {
   conversion_mode?: 'round-trip' | 'docx-direct'
   source_original_name: string
   import_warnings: string[]
+  processing_warnings?: string[]
   style_pack_id: string
   style_pack_version: number
-  suggestions: Suggestion[]
   artifacts: string[]
   error: string | null
   output_name: string | null
-  draft_updated_at: string | null
   source_hash: string
   render_revision: number
   preview_ready: boolean
-}
-
-export type JobDraft = {
-  source_format: string
-  source_markdown: string
-  warnings: string[]
 }
 
 const apiBase = import.meta.env.VITE_API_BASE ?? ''
@@ -100,32 +84,14 @@ export function normalizeDocxDirect(jobId: string, stylePack: Pick<StylePack, 'i
   })
 }
 
-export function getJobDraft(jobId: string): Promise<JobDraft> {
-  return request<JobDraft>(`/api/jobs/${jobId}/draft`)
-}
-
-export function saveDraft(jobId: string, sourceMarkdown: string): Promise<Job> {
-  return request<Job>(`/api/jobs/${jobId}/draft`, {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ source_markdown: sourceMarkdown }),
-  })
-}
-
 export function normalizeAndRender(
   jobId: string,
-  sourceMarkdown: string,
-  confirmedRoles: Record<string, string>,
-  stylePack?: Pick<StylePack, 'id' | 'version'>,
+  stylePack: Pick<StylePack, 'id' | 'version'>,
 ): Promise<Job> {
   return request<Job>(`/api/jobs/${jobId}/normalize-and-render`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      source_markdown: sourceMarkdown,
-      confirmed_roles: confirmedRoles,
-      ...(stylePack ? { style_pack_id: stylePack.id, style_pack_version: stylePack.version } : {}),
-    }),
+    body: JSON.stringify({ style_pack_id: stylePack.id, style_pack_version: stylePack.version }),
   })
 }
 
@@ -134,14 +100,7 @@ export function artifactUrl(jobId: string, artifactName: string, revision?: numb
   return revision ? `${url}?revision=${revision}` : url
 }
 
-export async function fetchArtifactText(jobId: string, artifactName: string, revision?: number): Promise<string> {
-  const response = await fetch(artifactUrl(jobId, artifactName, revision), { cache: 'no-store' })
-  if (!response.ok) {
-    throw new Error('无法读取规范化后的工作文档。')
-  }
-  return response.text()
-}
-
 export function previewUrl(jobId: string, revision: number): string {
   return `${apiBase}/api/jobs/${jobId}/preview?revision=${revision}`
 }
+

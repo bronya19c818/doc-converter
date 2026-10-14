@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict, deque
 from typing import Any
 
 from docx.document import Document as DocxDocument
@@ -15,15 +16,14 @@ from doc_converter.docx_styles import ROLE_TO_STYLE_ID
 from doc_converter.normalizer import (
     _TABLE_CAPTION_PATTERN,
     _extract_front_matter,
-    _extract_leading_metadata,
     _join_split_image_syntax,
     _normalize_html_images,
     _normalize_html_sub_sup,
     _normalize_html_tables,
     _normalize_metadata,
+    normalize_markdown,
 )
 
-_ORDERED_LIST = re.compile(r"^(\s*)(\d+)\.(\s+)")
 _TABLE_BORDER_EDGES = ("top", "bottom", "left", "right", "insideH", "insideV")
 _HEADING_STYLE = re.compile(r"^Heading\s*([1-6])$", re.IGNORECASE)
 _FIGURE_CAPTION_PATTERN = re.compile(
@@ -43,28 +43,14 @@ _REFERENCE_HEADING_PATTERN = re.compile(
 def split_metadata(markdown: str) -> tuple[dict[str, Any], str]:
     """Remove Front Matter before Pandoc and return normalized metadata."""
 
-    raw_metadata, lines, first_content_line = _extract_front_matter(markdown)
+    raw_metadata, lines, _ = _extract_front_matter(markdown)
+    if raw_metadata.get("schema") != "normalized-md/v1":
+        normalized = normalize_markdown(markdown, filename="document.md")
+        raw_metadata, lines, _ = _extract_front_matter(normalized.markdown)
     metadata = _normalize_metadata(raw_metadata)
-    extracted, consumed, _ = _extract_leading_metadata(lines, metadata, first_content_line)
-    metadata.update(extracted)
-    body_lines = [line for index, line in enumerate(lines) if index not in consumed]
-    body = _join_split_image_syntax("\n".join(body_lines).strip("\n"))
+    body = _join_split_image_syntax("\n".join(lines).strip("\n"))
     body = _normalize_html_sub_sup(_normalize_html_tables(_normalize_html_images(body)))
     return metadata, body + "\n"
-
-
-def protect_ordered_list_literals(markdown: str) -> str:
-    """Escape ordered-list markers so Pandoc emits ordinary paragraphs."""
-
-    lines: list[str] = []
-    in_fence = False
-    for line in markdown.splitlines():
-        if line.strip().startswith("```") or line.strip().startswith("~~~"):
-            in_fence = not in_fence
-        if not in_fence:
-            line = _ORDERED_LIST.sub(r"\1\2\\.\3", line)
-        lines.append(line)
-    return "\n".join(lines) + "\n"
 
 
 def apply_postprocess(
@@ -72,11 +58,28 @@ def apply_postprocess(
     metadata: dict[str, Any],
     *,
     max_image_width_cm: float | None = None,
+    semantic_roles: list[dict[str, Any]] | None = None,
 ) -> None:
     """Apply semantic style IDs, metadata paragraphs, lists and footers."""
 
+    role_queues: dict[str, deque[str]] = defaultdict(deque)
+    for decision in semantic_roles or []:
+        text = decision.get("features", {}).get("render_text")
+        role = decision.get("role", "body-paragraph")
+        if isinstance(text, str) and (role in {"body-paragraph", "table-caption", "figure-caption", "reference-heading", "reference-entry"} or role.startswith("heading-")):
+            role_queues[re.sub(r"\s+", " ", text).strip()].append(role)
     in_references = False
     for paragraph in document.paragraphs:
+        style_id = paragraph.style.style_id if paragraph.style else ""
+        if style_id in {"SourceCode", "VerbatimChar"}:
+            continue
+        queue = role_queues.get(re.sub(r"\s+", " ", paragraph.text).strip())
+        if semantic_roles is not None:
+            role = queue.popleft() if queue and style_id not in ROLE_TO_STYLE_ID.values() else None
+            if role:
+                paragraph.style = ROLE_TO_STYLE_ID[role]
+            _map_paragraph(paragraph, ROLE_TO_STYLE_ID["body-paragraph"])
+            continue
         if _REFERENCE_HEADING_PATTERN.fullmatch(paragraph.text.strip()):
             paragraph.style = ROLE_TO_STYLE_ID["reference-heading"]
             _remove_numbering(paragraph)
@@ -90,8 +93,9 @@ def apply_postprocess(
         _apply_table_borders(table)
         _style_table_cells(table)
 
-    _style_table_captions(document)
-    _style_figure_captions(document)
+    if semantic_roles is None:
+        _style_table_captions(document)
+        _style_figure_captions(document)
     _apply_image_max_width(document, max_image_width_cm)
     _insert_metadata(document, metadata)
     _add_page_footers(document)
@@ -386,3 +390,4 @@ def _set_footer(footer: Any, alignment: str) -> None:
     field.append(run)
     paragraph._p.append(field)
     paragraph.add_run(" －")
+

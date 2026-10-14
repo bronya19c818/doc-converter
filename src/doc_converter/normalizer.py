@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime
 from html.parser import HTMLParser
@@ -27,16 +28,12 @@ _HTML_SUB_SUP_PATTERN = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 _LABEL_PATTERN = re.compile(r"^\s*(摘要|关键词)\s*[:：]\s*(.*)$")
-_TITLE_AREA_LABEL_PATTERN = re.compile(
-    r"^\s*(作者单位|作者|单位|机构|组织|部门|所属部门|日期|时间|发布时间)\s*[:：]\s*(.*)$"
-)
+
 _KEYWORD_SEPARATOR = re.compile(r"[；;，,\n]+")
 _TABLE_CAPTION_PATTERN = re.compile(
     r"^\s*表\s*(?:\d+|[一二三四五六七八九十百千万]+)\s*(?:[：:、.．\s]|$)"
 )
-_NUMBERED_HEADING_PATTERN = re.compile(
-    r"^#{1,6}\s+(?:[一二三四五六七八九十百千万]+[、.．)]|（[^）]+）|\d+[.、)])"
-)
+
 _CHINESE_NAME_PATTERN = re.compile(r"^[\u4e00-\u9fff]{2,4}$")
 _MULTI_AUTHOR_PATTERN = re.compile(r"^[\u4e00-\u9fff]{2,4}(?:[、，,]\s*[\u4e00-\u9fff]{2,4})+$")
 _ORG_MARKERS = ("公司", "集团", "中心", "大学", "学院", "研究院", "事务所", "工厂", "医院", "学校", "协会", "委员会")
@@ -74,70 +71,110 @@ def normalize_markdown(
     source: str,
     *,
     filename: str,
-    confirmed_roles: dict[int, str],
+    confirmed_roles: dict[int, str] | None = None,
 ) -> NormalizedDocument:
-    """Normalize explicit and narrowly recognizable title-area metadata.
+    """Automatically score, resolve and normalize immutable imported Markdown.
 
-    ``confirmed_roles`` is keyed by the one-based source line number.  Leading
-    subtitle and labelled abstract/keyword blocks are extracted only by the
-    deterministic title-area rules below; other unconfirmed source text
-    remains untouched so structural suggestions cannot become silent edits.
+    The optional legacy argument is accepted only for Python callers during
+    migration. Decisions always come from the same automatic pipeline.
     """
+    from doc_converter.markdown_scoring import METADATA_ROLE_KEYS, analyze_markdown
 
     raw_metadata, content_lines, first_content_line = _extract_front_matter(source)
     preprocessed = preprocess_markdown(
-        "\n".join(content_lines),
+        "\n".join(content_lines) + ("\n" if content_lines else ""),
         line_map=[first_content_line + offset for offset in range(len(content_lines))],
+        normalize_structure=False,
     )
     content_lines = preprocessed.text.splitlines()
     metadata = _normalize_metadata(raw_metadata)
-    changes: list[dict[str, str | int]] = list(preprocessed.changes)
-    extracted, consumed, extracted_changes = _extract_leading_metadata(
-        content_lines,
-        metadata,
-        first_content_line,
-        line_numbers=preprocessed.line_map,
-    )
-    metadata.update(extracted)
-    changes.extend(extracted_changes)
-    normalized_lines: list[str] = []
+    blocks, context = analyze_markdown(content_lines, metadata, preprocessed.line_map)
+    changes: list[dict[str, Any]] = list(preprocessed.changes)
+    replacements: dict[int, tuple[int, list[str]]] = {}
+    consumed: set[int] = set()
+    from doc_converter.docx_styles import ROLE_TO_STYLE_ID
 
-    for offset, line in enumerate(content_lines):
-        if offset in consumed:
+    decisions: list[dict[str, Any]] = []
+    for role, key in METADATA_ROLE_KEYS.items():
+        if key not in metadata or metadata[key] in (None, "", []):
             continue
-        source_line = preprocessed.line_map[offset]
-        match = _HEADING_PATTERN.match(line)
-        confirmed_role = confirmed_roles.get(source_line)
-        if match and confirmed_role in {"document-title", "document-subtitle"}:
-            metadata["title" if confirmed_role == "document-title" else "subtitle"] = match.group(2)
-            changes.append(
-                {
-                    "line": source_line,
-                    "from": f"heading-{len(match.group(1))}",
-                    "to": confirmed_role,
-                }
-            )
-            continue
-        normalized_lines.append(line)
-
-    body = _normalize_html_tables("\n".join(normalized_lines).strip("\n"))
+        line = next((i + 1 for i, text in enumerate(source.splitlines()[:first_content_line - 1]) if re.match(rf"^{key}\s*:", text)), 1)
+        style_role = "organization-department" if role in {"organization", "department"} else role
+        decisions.append({
+            "line": line, "end_line": line, "from_role": role, "role": role,
+            "target_style": ROLE_TO_STYLE_ID.get(style_role), "action": "mapped",
+            "applied_change": False, "before": metadata[key], "after": metadata[key],
+            "score": 200, "margin": 200, "confidence_band": "high",
+            "reason": "显式 Front Matter 优先", "features": {"front_matter": True},
+            "candidates": [{"role": role, "raw_score": 200, "resolved_score": 200, "evidence": [{"feature": "explicit_front_matter", "contribution": 200, "reason": "显式 Front Matter 优先", "stage": "raw"}]}],
+        })
+    for block in blocks:
+        before = "\n".join(content_lines[block.start:block.end])
+        original_role = f"heading-{block.level}" if block.level else block.kind
+        after = before
+        applied = False
+        if block.start in consumed:
+            role = block.role
+        else:
+            role = block.role
+            if role in METADATA_ROLE_KEYS:
+                key = METADATA_ROLE_KEYS[role]
+                value = block.metadata_value or block.inline
+                if key not in metadata or metadata[key] in (None, "", []):
+                    metadata[key] = _split_list_value(value, separators="；;，,、\n") if key == "authors" else _split_list_value(value) if key == "keywords" else value
+                    end = block.end
+                    if block.text in {"摘要", "关键词"}:
+                        next_block = next((b for b in blocks if b.start >= block.end), None)
+                        if next_block:
+                            end = next_block.end
+                    consumed.update(range(block.start, end))
+                    replacements[block.start] = (end, [])
+                    after = ""
+                    applied = True
+                    changes.append({"line": preprocessed.line_map[block.start], "from": original_role, "to": role})
+            elif role.startswith("heading-") and not block.protected:
+                level = int(role[-1])
+                if not block.level or level != block.level:
+                    from doc_converter.markdown_preprocess import _unescape_ordered_heading_marker
+                    after = f"{'#' * level} {_unescape_ordered_heading_marker(block.inline).strip()}"
+                    replacements[block.start] = (block.end, [after])
+                    applied = True
+                    changes.append({"line": preprocessed.line_map[block.start], "from": original_role, "to": "heading-level", "level": level, "reason": block.reason})
+        decisions.append({
+            "line": preprocessed.line_map[block.start],
+            "end_line": preprocessed.line_map[block.end - 1],
+            "from_role": original_role, "role": role,
+            "target_style": ROLE_TO_STYLE_ID.get("organization-department" if role in {"organization", "department"} else role),
+            "action": "preserved" if block.protected and role != "body-table" else "mapped",
+            "applied_change": applied, "before": before, "after": after,
+            "score": block.score, "margin": block.margin,
+            "confidence_band": block.confidence_band, "reason": block.reason,
+            "features": block.features,
+            "candidates": [candidate.model_dump() for candidate in block.candidates],
+        })
+    output: list[str] = []
+    index = 0
+    while index < len(content_lines):
+        if index in replacements:
+            end, replacement = replacements[index]
+            output.extend(replacement)
+            index = end
+        else:
+            output.append(content_lines[index])
+            index += 1
+    body = _normalize_html_tables("\n".join(output).strip("\n"))
     markdown = _serialize_front_matter(metadata, body)
     integrity = _integrity_inventory(source, markdown)
-    integrity["passed"] = integrity["images"] == integrity["normalized_images"] and integrity[
-        "links"
-    ] == integrity["normalized_links"]
+    integrity["passed"] = integrity["images"] == integrity["normalized_images"] and integrity["links"] == integrity["normalized_links"]
     integrity.pop("normalized_images")
     integrity.pop("normalized_links")
-
     return NormalizedDocument(
         markdown=markdown,
         report={
-            "schema": "normalized-md/v1",
-            "source": filename,
-            "changes": changes,
-            "warnings": [],
-            "metadata": metadata,
-            "integrity": integrity,
+            "schema": "normalized-md/v2", "source": filename,
+            "changes": changes, "decisions": decisions, "context": context,
+            "counts": {"blocks": len(decisions), "changed": sum(d["applied_change"] for d in decisions), "roles": dict(Counter(d["role"] for d in decisions))},
+            "warnings": [], "metadata": metadata, "integrity": integrity,
         },
         metadata=metadata,
     )
@@ -180,7 +217,7 @@ def _normalize_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
             value = value.isoformat()
         if key in {"authors", "keywords"}:
             if isinstance(value, str):
-                value = _split_list_value(value)
+                value = _split_list_value(value, separators="；;，,、\n" if key == "authors" else "；;，,\n")
             elif isinstance(value, tuple):
                 value = list(value)
             elif not isinstance(value, list):
@@ -193,166 +230,6 @@ def _normalize_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
         if key not in _METADATA_KEYS and key != "schema":
             normalized[key] = value
     return normalized
-
-
-def _extract_leading_metadata(
-    lines: list[str],
-    metadata: dict[str, Any],
-    first_content_line: int,
-    *,
-    line_numbers: list[int] | None = None,
-) -> tuple[dict[str, Any], set[int], list[dict[str, str | int]]]:
-    """Extract strongly labelled title-area blocks without rewriting ordinary prose."""
-
-    barrier = _leading_metadata_barrier(lines)
-    blocks = _non_empty_blocks(lines[:barrier])
-    extracted: dict[str, Any] = {}
-    consumed: set[int] = set()
-    changes: list[dict[str, str | int]] = []
-    subtitle_seen = False
-    title_hint = bool(metadata.get("title"))
-
-    for block_start, block_end, block_lines in blocks:
-        block_text = "\n".join(line.strip() for line in block_lines).strip()
-        heading_match = _HEADING_PATTERN.match(block_lines[0]) if len(block_lines) == 1 else None
-        if heading_match:
-            if _NUMBERED_HEADING_PATTERN.match(block_lines[0]):
-                break
-            heading_text = heading_match.group(2).strip()
-            if (
-                title_hint
-                and "authors" not in metadata
-                and "authors" not in extracted
-                and _is_author_candidate(heading_text)
-            ):
-                extracted["authors"] = [heading_text]
-                consumed.update(range(block_start, block_end))
-                changes.append(
-                    {
-                        "line": _source_line_number(line_numbers, first_content_line, block_start),
-                        "from": "heading-1",
-                        "to": "authors",
-                    }
-                )
-                continue
-            title_hint = True
-            continue
-
-        label_match = _LABEL_PATTERN.match(block_text)
-        if label_match:
-            key = "abstract" if label_match.group(1) == "摘要" else "keywords"
-            if key in metadata or key in extracted:
-                continue
-            value = label_match.group(2).strip()
-            if len(block_lines) > 1:
-                continuation = "\n".join(line.strip() for line in block_lines[1:]).strip()
-                value = "\n".join(part for part in (value, continuation) if part)
-            if key == "keywords":
-                parsed = _split_list_value(value)
-                if not parsed:
-                    continue
-                extracted[key] = parsed
-            elif value:
-                extracted[key] = value
-            else:
-                continue
-            consumed.update(range(block_start, block_end))
-            changes.append(
-                {
-                    "line": _source_line_number(line_numbers, first_content_line, block_start),
-                    "from": "labelled-paragraph",
-                    "to": key,
-                }
-            )
-            continue
-
-        title_area_match = _TITLE_AREA_LABEL_PATTERN.match(block_text)
-        if title_area_match and title_hint:
-            role, value = _metadata_label_value(title_area_match.group(1), title_area_match.group(2))
-            if role and value and role not in metadata and role not in extracted:
-                extracted[role] = _split_list_value(value) if role == "authors" else value
-                consumed.update(range(block_start, block_end))
-                changes.append(
-                    {
-                        "line": _source_line_number(line_numbers, first_content_line, block_start),
-                        "from": "labelled-paragraph",
-                        "to": role,
-                    }
-                )
-                continue
-
-        if title_hint and len(block_lines) == 1:
-            role = _infer_title_area_role(block_text)
-            if role is None and _is_date_candidate(block_text):
-                role = "date"
-            if role and role not in metadata and role not in extracted:
-                extracted[role] = _split_list_value(block_text) if role == "authors" else block_text
-                consumed.update(range(block_start, block_end))
-                changes.append(
-                    {
-                        "line": _source_line_number(line_numbers, first_content_line, block_start),
-                        "from": "leading-paragraph",
-                        "to": role,
-                    }
-                )
-                continue
-
-        if (
-            not subtitle_seen
-            and title_hint
-            and "subtitle" not in metadata
-            and "subtitle" not in extracted
-            and _is_subtitle_candidate(block_lines)
-        ):
-            extracted["subtitle"] = block_text
-            consumed.update(range(block_start, block_end))
-            subtitle_seen = True
-            changes.append(
-                {
-                "line": _source_line_number(line_numbers, first_content_line, block_start),
-                    "from": "leading-paragraph",
-                    "to": "document-subtitle",
-                }
-            )
-            continue
-
-        # A non-metadata paragraph marks the end of the title area. This keeps
-        # later short body paragraphs from being mistaken for authors or units.
-        break
-
-    return extracted, consumed, changes
-
-
-def _source_line_number(line_numbers: list[int] | None, first_content_line: int, index: int) -> int:
-    if line_numbers is not None and index < len(line_numbers):
-        return line_numbers[index]
-    return first_content_line + index
-
-
-def _leading_metadata_barrier(lines: list[str]) -> int:
-    for index, line in enumerate(lines):
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if _NUMBERED_HEADING_PATTERN.match(line) or stripped.startswith(("```", "~~~", "|")):
-            return index
-    return len(lines)
-
-
-def _non_empty_blocks(lines: list[str]) -> list[tuple[int, int, list[str]]]:
-    blocks: list[tuple[int, int, list[str]]] = []
-    index = 0
-    while index < len(lines):
-        if not lines[index].strip():
-            index += 1
-            continue
-        start = index
-        block_lines: list[str] = []
-        while index < len(lines) and lines[index].strip():
-            block_lines.append(lines[index])
-            index += 1
-        blocks.append((start, index, block_lines))
-    return blocks
 
 
 def _is_subtitle_candidate(lines: list[str]) -> bool:
@@ -370,8 +247,38 @@ def _is_subtitle_candidate(lines: list[str]) -> bool:
     return not value.endswith(("。", "！", "？", "；", ".", "!", "?", ";", ":", "："))
 
 
-def _split_list_value(value: str) -> list[str]:
-    return [item.strip() for item in _KEYWORD_SEPARATOR.split(value) if item.strip()]
+def _split_list_value(value: str, *, separators: str = "；;，,\n") -> list[str]:
+    """Split display delimiters while retaining Markdown links/code verbatim."""
+    parts: list[str] = []
+    start = 0
+    brackets = 0
+    parentheses = 0
+    code = False
+    escaped = False
+    for index, character in enumerate(value):
+        if escaped:
+            escaped = False
+            continue
+        if character == "\\":
+            escaped = True
+            continue
+        if character == "`":
+            code = not code
+        if code:
+            continue
+        if character == "[":
+            brackets += 1
+        elif character == "]":
+            brackets = max(0, brackets - 1)
+        elif character == "(":
+            parentheses += 1
+        elif character == ")":
+            parentheses = max(0, parentheses - 1)
+        elif character in separators and not brackets and not parentheses:
+            parts.append(value[start:index].strip())
+            start = index + 1
+    parts.append(value[start:].strip())
+    return [part for part in parts if part]
 
 
 def _metadata_label_value(label: str, value: str) -> tuple[str | None, str]:
@@ -463,26 +370,21 @@ def _normalize_html_tables(markdown: str) -> str:
     if "<table" not in markdown.lower():
         return markdown
     lines = markdown.splitlines()
+    replacements: dict[int, tuple[int, str]] = {}
+    for token in MarkdownIt("commonmark", {"html": True}).parse(markdown):
+        if token.type == "html_block" and token.level == 0 and token.map and "<table" in token.content.lower():
+            start, end = token.map
+            replacements[start] = (end, _replace_html_table_block("\n".join(lines[start:end])))
     output: list[str] = []
-    in_fence = False
     index = 0
     while index < len(lines):
-        line = lines[index]
-        stripped = line.strip()
-        if stripped.startswith(("```", "~~~")):
-            in_fence = not in_fence
-        if not in_fence and "<table" in line.lower():
-            block = [line]
-            depth = line.lower().count("<table") - line.lower().count("</table>")
-            while depth > 0 and index + 1 < len(lines):
-                index += 1
-                block.append(lines[index])
-                depth += lines[index].lower().count("<table")
-                depth -= lines[index].lower().count("</table>")
-            output.extend(_replace_html_table_block("\n".join(block)).splitlines())
+        if index in replacements:
+            end, replacement = replacements[index]
+            output.extend(replacement.splitlines())
+            index = end
         else:
-            output.append(line)
-        index += 1
+            output.append(lines[index])
+            index += 1
     return "\n".join(output)
 
 
@@ -520,34 +422,26 @@ def _integrity_inventory(source: str, normalized: str) -> dict[str, Any]:
     }
 
 
-def _join_split_image_syntax(markdown: str) -> str:
-    """Join exporter-style ``![alt]`` plus next-line ``(source)`` images."""
+def _code_line_indices(markdown: str) -> set[int]:
+    return {line for token in MarkdownIt("commonmark", {"html": True}).parse(markdown)
+            if token.type in {"fence", "code_block"} and token.map for line in range(*token.map)}
 
+
+def _join_split_image_syntax(markdown: str) -> str:
+    """Join exported image syntax outside parsed code blocks."""
     lines = markdown.splitlines()
+    protected = _code_line_indices(markdown)
     output: list[str] = []
-    fence: tuple[str, int] | None = None
     index = 0
     while index < len(lines):
-        line = lines[index]
-        fence_match = re.match(r"^\s*(`{3,}|~{3,})", line)
-        if fence_match:
-            marker = fence_match.group(1)
-            if fence is None:
-                fence = (marker[0], len(marker))
-            elif marker[0] == fence[0] and len(marker) >= fence[1]:
-                fence = None
-            output.append(line)
-            index += 1
-            continue
-
-        label_match = _SPLIT_IMAGE_LABEL_LINE.fullmatch(line)
-        if fence is None and label_match is not None and index + 1 < len(lines):
-            destination_match = _SPLIT_IMAGE_DESTINATION_LINE.fullmatch(lines[index + 1])
-            if destination_match is not None:
-                output.append(label_match.group(1) + destination_match.group(1))
+        label = _SPLIT_IMAGE_LABEL_LINE.fullmatch(lines[index])
+        if index not in protected and index + 1 < len(lines) and index + 1 not in protected and label:
+            destination = _SPLIT_IMAGE_DESTINATION_LINE.fullmatch(lines[index + 1])
+            if destination:
+                output.append(label.group(1) + destination.group(1))
                 index += 2
                 continue
-        output.append(line)
+        output.append(lines[index])
         index += 1
     return "\n".join(output)
 
@@ -603,7 +497,7 @@ def _normalize_html_images(markdown: str) -> str:
 
     output: list[str] = []
     ordinary_lines: list[str] = []
-    fence: tuple[str, int] | None = None
+    protected = _code_line_indices(markdown)
 
     def flush_ordinary_lines() -> None:
         if ordinary_lines:
@@ -621,20 +515,12 @@ def _normalize_html_images(markdown: str) -> str:
             output.append(transformed)
             ordinary_lines.clear()
 
-    for line in markdown.splitlines(keepends=True):
-        fence_match = re.match(r"^\s*(`{3,}|~{3,})", line)
-        if fence_match:
+    for index, line in enumerate(markdown.splitlines(keepends=True)):
+        if index in protected:
             flush_ordinary_lines()
-            marker = fence_match.group(1)
-            if fence is None:
-                fence = (marker[0], len(marker))
-            elif marker[0] == fence[0] and len(marker) >= fence[1]:
-                fence = None
             output.append(line)
-        elif fence is None:
-            ordinary_lines.append(line)
         else:
-            output.append(line)
+            ordinary_lines.append(line)
     flush_ordinary_lines()
     return "".join(output)
 
@@ -649,7 +535,7 @@ def _normalize_html_sub_sup(markdown: str) -> str:
 
     output: list[str] = []
     ordinary_lines: list[str] = []
-    fence: tuple[str, int] | None = None
+    protected = _code_line_indices(markdown)
 
     def flush_ordinary_lines() -> None:
         if not ordinary_lines:
@@ -671,20 +557,12 @@ def _normalize_html_sub_sup(markdown: str) -> str:
         output.append(transformed)
         ordinary_lines.clear()
 
-    for line in markdown.splitlines(keepends=True):
-        fence_match = re.match(r"^\s*(`{3,}|~{3,})", line)
-        if fence_match:
+    for index, line in enumerate(markdown.splitlines(keepends=True)):
+        if index in protected:
             flush_ordinary_lines()
-            marker = fence_match.group(1)
-            if fence is None:
-                fence = (marker[0], len(marker))
-            elif marker[0] == fence[0] and len(marker) >= fence[1]:
-                fence = None
             output.append(line)
-        elif fence is None:
-            ordinary_lines.append(line)
         else:
-            output.append(line)
+            ordinary_lines.append(line)
     flush_ordinary_lines()
     return "".join(output)
 
@@ -702,3 +580,4 @@ def _html_image_to_markdown(match: re.Match[str]) -> str:
     escaped_title = title.replace("\\", "\\\\").replace('"', '\\"') if title else None
     title_part = f' "{escaped_title}"' if escaped_title else ""
     return f"![{escaped_alt}](<{source}>{title_part})"
+
