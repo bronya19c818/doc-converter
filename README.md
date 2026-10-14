@@ -147,3 +147,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
 
 当前仓库为私有项目，暂不授予第三方使用、复制或分发权利；如需开源发布，将在此处替换为明确的开源许可证说明。
 
+
+### 第二轮结构恢复与 Windows Docker 验证
+
+Markdown / DOC 的自动规范化复用原生 DOCX 的编号序列、局部章节模型、真实/虚拟父节点恢复能力，并对实际 DOCX 样式及大纲进行复核。流程仍为一键转换、预览和下载。
+
+- [多阶段架构与复用边界](docs/markdown-auto-normalization-v2-structure-quality.md)
+- [新旧质量指标、正确修复覆盖率与性能](docs/markdown-quality-v2-repair-coverage.md)
+- [Windows PowerShell 更新、PR worktree 与真实 Docker 验证](docs/windows-docker-v2-startup-verification.md)
+
+Shell 脚本检出固定 LF，镜像构建另做 CRLF 归一；重建容器无需删除数据卷。样式设置显示异常先 Ctrl+F5，首页 HTML 已配置重新验证。

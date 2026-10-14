@@ -144,3 +144,14 @@ def test_appendix_boundary_does_not_remove_previous_headings_child_evidence():
     d = roles(source)
     assert d["支持内容"]["role"] == "heading-2"
     assert d["（二）执行要求"]["role"] == "heading-2"
+
+
+def test_virtual_parent_is_internal_and_never_written_into_text():
+    source = "# 一、先行要求\n\n## （一）实施范围\n\n### 1. 初装辅助\n\n初装正文。\n\n### 2. 维护辅助\n\n维护正文。\n\n## （二）安全要求\n\n安全正文。\n\n# 二、后续要求\n\n### 1. 后续入库\n\n入库正文。\n\n### 2. 后续在库\n\n在库正文。\n\n## （二）后续安全\n\n安全正文。"
+    r = result(source)
+    nodes = r.report["context"]["virtual_heading_nodes"]
+    assert len(nodes) == 1
+    assert nodes[0]["expected_level"] == 2
+    assert "text" not in nodes[0]
+    assert nodes[0]["virtual_node_id"] not in r.markdown
+    assert "### 1. 后续入库" in r.markdown

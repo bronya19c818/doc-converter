@@ -178,9 +178,26 @@ def main() -> None:
                     )
                 docker("restart", name)
                 wait_healthy()
-                for job_id in jobs:
-                    assert client.get("/api/jobs/" + job_id).json()["status"] == "completed"
-                events.append({"check": "restart-persistent-volume", "passed": True})
+                restarted = json.loads(docker("inspect", name))[0]
+                restarted_port = restarted["NetworkSettings"]["Ports"]["8765/tcp"][0]["HostPort"]
+                # Docker may allocate a different random host port on restart.
+                # Open a fresh client against the observed binding, not a stale pooled connection.
+                with httpx.Client(
+                    base_url=f"http://127.0.0.1:{restarted_port}", timeout=120
+                ) as after_restart:
+                    assert after_restart.get("/health").status_code == 200
+                    for job_id in jobs:
+                        assert (
+                            after_restart.get("/api/jobs/" + job_id).json()["status"] == "completed"
+                        )
+                events.append(
+                    {
+                        "check": "restart-persistent-volume",
+                        "passed": True,
+                        "initial_port": port,
+                        "restarted_port": restarted_port,
+                    }
+                )
         finally:
             subprocess.run(
                 ["docker", "logs", name],

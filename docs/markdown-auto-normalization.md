@@ -60,3 +60,7 @@ npm run build --prefix frontend
 代码提交 `34bc3f3efccfbaf290706cdcbb7b72010a6af373` 的 [GitHub CI](https://github.com/bronya19c818/doc-converter/actions/runs/38523515338) 全部通过：325 项后端测试通过、2 项环境条件跳过；23 项前端测试通过，Ruff、Mypy、生产构建通过。DOCX 原生 hybrid 验收覆盖 5 个夹具、31 项标注，角色有效格式验收覆盖 20 个案例。仓库已有 11 个 DOCX/PNG 二进制文件 SHA 保持不变。
 
 本地 30 项原生夹具测试因 GitHub 文本接口无法下载二进制而未运行成功；远端使用原件完成上述核验。本地真实 MD、DOC、DOCX 的应用 API 完成导入、生成、PDF 预览和 DOCX 下载。浏览器视觉验收未完成：本地 Chromium 官方下载被截断，云浏览器不能访问此运行环境的 localhost；Vitest 的交互验证不等同于真实浏览器视觉通过。本地没有 CJK 字体，生成 PDF 的中文视觉效果不作验收结论。
+
+## Issue #3 后续优化
+
+第二轮已复用 DOCX-direct 编号序列、章节模型、标题树和源结构恢复。评分、正确修复覆盖率及实际输出核验使用新口径；旧文中的“自动覆盖率”属于 v1 映射率，不能解读为正确修复率。详见 [v2 架构](markdown-auto-normalization-v2-structure-quality.md)、[质量评估](markdown-quality-v2-repair-coverage.md)及[Windows Docker](windows-docker-v2-startup-verification.md)。新规范化输出 schema 为 normalized-md/v2，渲染兼容 v1/v2。
