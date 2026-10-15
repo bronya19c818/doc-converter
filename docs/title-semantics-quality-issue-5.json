@@ -1,0 +1,350 @@
+{
+  "baseline_commit": "45827fb46d27df9454d3680fcb6cb2252c6842d5",
+  "prototypes": "title-expressions/v1",
+  "baseline": {
+    "cases": {
+      "markdown": {
+        "roles": {
+          "document-title": {
+            "tp": 11,
+            "fp": 3,
+            "fn": 4,
+            "precision": 0.7857142857142857,
+            "recall": 0.7333333333333333,
+            "f1": 0.7586206896551724
+          },
+          "document-subtitle": {
+            "tp": 1,
+            "fp": 0,
+            "fn": 7,
+            "precision": 1.0,
+            "recall": 0.125,
+            "f1": 0.2222222222222222
+          },
+          "heading-1": {
+            "tp": 37,
+            "fp": 7,
+            "fn": 3,
+            "precision": 0.8409090909090909,
+            "recall": 0.925,
+            "f1": 0.8809523809523809
+          }
+        },
+        "items": 104,
+        "errors": 16,
+        "output_checks": 104,
+        "output_errors": 16
+      },
+      "docx": {
+        "roles": {
+          "document-title": {
+            "tp": 2,
+            "fp": 0,
+            "fn": 13,
+            "precision": 1.0,
+            "recall": 0.13333333333333333,
+            "f1": 0.23529411764705882
+          },
+          "document-subtitle": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 8,
+            "precision": 0,
+            "recall": 0.0,
+            "f1": 0.0
+          },
+          "heading-1": {
+            "tp": 40,
+            "fp": 16,
+            "fn": 0,
+            "precision": 0.7142857142857143,
+            "recall": 1.0,
+            "f1": 0.8333333333333334
+          }
+        },
+        "items": 104,
+        "errors": 23,
+        "output_checks": 104,
+        "output_errors": 23
+      }
+    },
+    "holdout": {
+      "markdown": {
+        "roles": {
+          "document-title": {
+            "tp": 5,
+            "fp": 2,
+            "fn": 1,
+            "precision": 0.7142857142857143,
+            "recall": 0.8333333333333334,
+            "f1": 0.7692307692307693
+          },
+          "document-subtitle": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 5,
+            "precision": 0,
+            "recall": 0.0,
+            "f1": 0.0
+          },
+          "heading-1": {
+            "tp": 14,
+            "fp": 3,
+            "fn": 2,
+            "precision": 0.8235294117647058,
+            "recall": 0.875,
+            "f1": 0.8484848484848485
+          }
+        },
+        "items": 43,
+        "errors": 8,
+        "output_checks": 43,
+        "output_errors": 8
+      },
+      "docx": {
+        "roles": {
+          "document-title": {
+            "tp": 1,
+            "fp": 0,
+            "fn": 5,
+            "precision": 1.0,
+            "recall": 0.16666666666666666,
+            "f1": 0.2857142857142857
+          },
+          "document-subtitle": {
+            "tp": 0,
+            "fp": 0,
+            "fn": 5,
+            "precision": 0,
+            "recall": 0.0,
+            "f1": 0.0
+          },
+          "heading-1": {
+            "tp": 16,
+            "fp": 7,
+            "fn": 0,
+            "precision": 0.6956521739130435,
+            "recall": 1.0,
+            "f1": 0.8205128205128205
+          }
+        },
+        "items": 43,
+        "errors": 10,
+        "output_checks": 43,
+        "output_errors": 10
+      }
+    }
+  },
+  "current": {
+    "cases": {
+      "markdown": {
+        "roles": {
+          "document-title": {
+            "tp": 15,
+            "fp": 0,
+            "fn": 0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "document-subtitle": {
+            "tp": 8,
+            "fp": 0,
+            "fn": 0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "heading-1": {
+            "tp": 40,
+            "fp": 0,
+            "fn": 0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "items": 104,
+        "errors": 0,
+        "output_checks": 104,
+        "output_errors": 0
+      },
+      "docx": {
+        "roles": {
+          "document-title": {
+            "tp": 15,
+            "fp": 0,
+            "fn": 0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "document-subtitle": {
+            "tp": 8,
+            "fp": 0,
+            "fn": 0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "heading-1": {
+            "tp": 40,
+            "fp": 0,
+            "fn": 0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "items": 104,
+        "errors": 0,
+        "output_checks": 104,
+        "output_errors": 0
+      }
+    },
+    "holdout": {
+      "markdown": {
+        "roles": {
+          "document-title": {
+            "tp": 6,
+            "fp": 0,
+            "fn": 0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "document-subtitle": {
+            "tp": 4,
+            "fp": 0,
+            "fn": 1,
+            "precision": 1.0,
+            "recall": 0.8,
+            "f1": 0.8888888888888888
+          },
+          "heading-1": {
+            "tp": 16,
+            "fp": 0,
+            "fn": 0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          }
+        },
+        "items": 43,
+        "errors": 1,
+        "output_checks": 43,
+        "output_errors": 1
+      },
+      "docx": {
+        "roles": {
+          "document-title": {
+            "tp": 5,
+            "fp": 0,
+            "fn": 1,
+            "precision": 1.0,
+            "recall": 0.8333333333333334,
+            "f1": 0.9090909090909091
+          },
+          "document-subtitle": {
+            "tp": 5,
+            "fp": 0,
+            "fn": 0,
+            "precision": 1.0,
+            "recall": 1.0,
+            "f1": 1.0
+          },
+          "heading-1": {
+            "tp": 16,
+            "fp": 1,
+            "fn": 0,
+            "precision": 0.9411764705882353,
+            "recall": 1.0,
+            "f1": 0.9696969696969697
+          }
+        },
+        "items": 43,
+        "errors": 1,
+        "output_checks": 43,
+        "output_errors": 1
+      }
+    }
+  },
+  "local_performance": {
+    "baseline": {
+      "markdown": {
+        "paragraphs": 602,
+        "characters": 18083,
+        "runs": [
+          0.17257406600015202,
+          0.2795980349999354,
+          0.1900481629998012,
+          0.262694324999984,
+          0.18626887800019176
+        ],
+        "median_seconds": 0.1900481629998012
+      },
+      "docx": {
+        "paragraphs": 602,
+        "characters": 18083,
+        "runs": [
+          0.3562092440001834,
+          0.383633662000193,
+          0.3438523740001074,
+          0.3616334119999465,
+          0.39039663399989877
+        ],
+        "median_seconds": 0.3616334119999465
+      }
+    },
+    "current": {
+      "markdown": {
+        "paragraphs": 602,
+        "characters": 18083,
+        "runs": [
+          0.2565632310002002,
+          0.2481404529999054,
+          0.22513615999991998,
+          0.24275398999998288,
+          0.23937685299983968
+        ],
+        "median_seconds": 0.24275398999998288
+      },
+      "docx": {
+        "paragraphs": 602,
+        "characters": 18083,
+        "runs": [
+          0.4855037029999494,
+          0.48091341600002124,
+          0.36226004299987835,
+          0.3981654660001368,
+          0.4373205740000685
+        ],
+        "median_seconds": 0.4373205740000685
+      }
+    }
+  },
+  "remaining_errors": [
+    {
+      "split": "holdout",
+      "case": "validation-nominal-no-layout",
+      "route": "docx",
+      "text": "物资全寿命周期价值释放",
+      "expected": "document-title",
+      "actual": "heading-1",
+      "output_correct": false,
+      "actual_style": "DC_Heading1",
+      "actual_outline": 0
+    },
+    {
+      "split": "holdout",
+      "case": "validation-native-bare",
+      "route": "markdown",
+      "text": "一次街区观察",
+      "expected": "document-subtitle",
+      "actual": "body-paragraph",
+      "output_correct": false,
+      "actual_style": "DC_BodyParagraph",
+      "actual_outline": null
+    }
+  ]
+}

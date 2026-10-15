@@ -149,7 +149,7 @@ def metadata_reference_definitions(body: str) -> str:
 
 def metadata_markdown(metadata: dict[str, Any]) -> str:
     """Render metadata through Pandoc too, retaining links, emphasis and code."""
-    entries: list[tuple[str, str]] = []
+    entries: list[tuple[str, str, str]] = []
     for key, role in (("title", "document-title"), ("subtitle", "document-subtitle"),
                       ("organization", "organization-department"), ("department", "organization-department"),
                       ("authors", "author"), ("date", "date")):
@@ -157,7 +157,7 @@ def metadata_markdown(metadata: dict[str, Any]) -> str:
         if isinstance(value, list):
             value = "、".join(str(item) for item in value)
         if isinstance(value, str) and value.strip():
-            entries.append((role, value))
+            entries.append((key, role, value))
     for key, label in (("abstract", "摘要"), ("keywords", "关键词")):
         value = metadata.get(key)
         if isinstance(value, list):
@@ -165,9 +165,10 @@ def metadata_markdown(metadata: dict[str, Any]) -> str:
         if isinstance(value, str) and value.strip():
             value = value.removeprefix(label + "：").removeprefix(label + ":")
             content_style = ROLE_TO_STYLE_ID[key + "-content"]
-            entries.append((key + "-label", f'{label}：[{value}]{{custom-style="{content_style}"}}'))
+            entries.append((key, key + "-label", f'{label}：[{value}]{{custom-style="{content_style}"}}'))
     output: list[str] = []
-    for role, text in entries:
+    order = list(metadata)
+    for _, role, text in sorted(entries, key=lambda entry: order.index(entry[0])):
         # Longer fences keep literal ::: lines inside metadata from ending a div.
         fence = ":" * max(4, max((len(line) for line in text.splitlines() if line and set(line) == {":"}), default=0) + 1)
         output.append(f'{fence} {{custom-style="{ROLE_TO_STYLE_ID[role]}"}}\n{text}\n{fence}\n')

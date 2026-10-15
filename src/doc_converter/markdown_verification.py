@@ -31,7 +31,15 @@ def verify_rendered_roles(
         paragraphs[re.sub(r"\s+", " ", item.text).strip()].append(item)
     checks: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
-    for d in decisions:
+    expanded: list[dict[str, Any]] = []
+    for decision in decisions:
+        if decision["role"] in {"document-title", "document-subtitle"} and decision.get("features", {}).get("front_matter"):
+            from doc_converter.markdown_scoring import parse_blocks
+            expanded.extend({**decision, "features": {**decision["features"], "render_text": b.text}}
+                            for b in parse_blocks(str(decision["before"]).splitlines()))
+        else:
+            expanded.append(decision)
+    for d in expanded:
         role = d["role"]
         if role in {"organization", "department"}:
             role = "organization-department"
@@ -68,7 +76,8 @@ def verify_rendered_roles(
         format_keys = ("alignment", "paragraph_indent", "paragraph_spacing")
         style_matches = actual_style == sid
         outline_matches = (
-            actual_outline == expected_outline if expected_outline is not None else True
+            actual_outline == expected_outline if expected_outline is not None else
+            actual_outline in {None, 9} if role in {"document-title", "document-subtitle"} else True
         )
         format_matches = all(effective.get(k) == expected.get(k) for k in format_keys)
         ordinary_runs = [

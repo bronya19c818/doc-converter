@@ -14,6 +14,7 @@ def structure_safe(f: dict[str, Any]) -> bool:
                        "explicit_organization_label", "explicit_date",
                        "person_name_pattern", "organization_pattern", "caption_pattern", "reference_boundary")
     ) and not f["native_title_style"]
+        and f.get("semantic_preface_role") not in {"document-title", "document-subtitle"}
         and not (f["author_name_list_shape"] and not f["numbering_family"]))
 
 

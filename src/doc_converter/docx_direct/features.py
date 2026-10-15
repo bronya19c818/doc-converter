@@ -77,6 +77,7 @@ def _plain_features(element: ElementAnalysis, index: int, total: int) -> dict[st
     title_style = next((value.lower() for value in (
         element.original_style_id, element.original_style_name,
     ) if value and value.lower() in {"title", "subtitle"}), None)
+    title_style = title_style or {"DC_DocumentTitle": "title", "DC_DocumentSubtitle": "subtitle"}.get(element.original_style_id or "")
     size = _number(effective.get("dominant_font_size_pt")) or _number(effective.get("font_size_pt"))
     automatic = element.numbering_properties.get("num_id") not in (None, "0", 0)
     is_list = automatic or (element.original_style_name or "").lower().startswith("list ")

@@ -20,6 +20,11 @@ from doc_converter.docx_direct.resolver import resolve_candidates
 from doc_converter.docx_direct.scoring import ScoringConfig, decide, score_roles
 from doc_converter.docx_direct.source_structure_recovery import finish_source_audit
 from doc_converter.structure.body_roots import FinalParagraph, normalize_body_roots
+from doc_converter.structure.title_semantics import (
+    TitleParagraph,
+    select_title_area,
+    semantic_profile,
+)
 
 SUPPORTED_ROLES = frozenset(
     {
@@ -100,6 +105,21 @@ def classify_document(
     config = scoring_config or ScoringConfig()
     # Extract from analyzer evidence, never from legacy's role/region decisions.
     features, baselines = extract_document_features(analysis)
+    title_area = select_title_area([
+        TitleParagraph(
+            f["element_id"], f["text"], f["native_heading_level"] or 0,
+            {"title": "document-title", "subtitle": "document-subtitle"}.get(f["native_title_style"]),
+            blocked=bool(f["has_complex_object"] or f["list"] or f["table_context"] is not None),
+            metadata=bool(any(f[k] for k in ("explicit_author_label", "explicit_organization_label", "explicit_date", "author_name_list_shape", "organization_pattern", "caption_pattern", "reference_boundary"))),
+            centered=f["alignment"] == "center",
+            large=bool(f["font_size_to_body_ratio"] and f["font_size_to_body_ratio"] >= config.larger_font_ratio),
+            preface_boundary=f["abstract_label"],
+        ) for f in features
+    ])
+    baselines["title_area"] = title_area
+    for f in features:
+        f["title_semantics"] = semantic_profile(f["text"])
+        f["semantic_preface_role"] = title_area["selected"].get(f["element_id"])
     candidates = [score_roles(f, config) for f in features]
     baselines.update(resolve_candidates(features, candidates, config))
     legacy = classify_document_legacy(analysis)
