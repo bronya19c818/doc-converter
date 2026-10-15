@@ -31,8 +31,9 @@ def test_full_document_numbering_keeps_parentheses_distinct():
 def test_explicit_hierarchy_and_front_matter_win():
     result = normalize("---\ntitle: 已有标题\norganization: 原有单位\n---\n\n## 背景\n\n### 一、措施\n\n#### （一）实施\n\n##### 1. 工作\n\n###### （1）步骤\n\n正文。")
     assert result.metadata["title"] == "已有标题"
-    assert "### 一、措施" in result.markdown
-    assert "###### （1）步骤" in result.markdown
+    assert "# 背景" in result.markdown.splitlines()
+    assert "## 一、措施" in result.markdown.splitlines()
+    assert "##### （1）步骤" in result.markdown.splitlines()
 
 
 def test_medium_score_with_full_document_evidence_is_applied():
@@ -129,7 +130,8 @@ def test_decimal_explicit_anchor_is_relative_to_number_depth():
 def test_title_above_varied_numbered_headings_is_still_document_title():
     result = normalize('# 配送方案\n\n## 一、背景\n\n### （一）现状\n\n正文。')
     assert result.metadata['title'] == '配送方案'
-    assert '## 一、背景' in result.markdown
+    assert '# 一、背景' in result.markdown.splitlines()
+    assert '## （一）现状' in result.markdown.splitlines()
 
 
 def test_numbered_reference_heading_uses_reference_role():

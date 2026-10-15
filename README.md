@@ -157,3 +157,5 @@ Markdown / DOC 的自动规范化复用原生 DOCX 的编号序列、局部章�
 - [Windows PowerShell 更新、PR worktree 与真实 Docker 验证](docs/windows-docker-v2-startup-verification.md)
 
 Shell 脚本检出固定 LF，镜像构建另做 CRLF 归一；重建容器无需删除数据卷。样式设置显示异常先 Ctrl+F5，首页 HTML 已配置重新验证。
+
+Issue #4 的完整正文 H2/H3 起步修正、保留边界和两条路径输出对照见 [正文根层级归一报告](docs/body-root-normalization-issue-4.md)。

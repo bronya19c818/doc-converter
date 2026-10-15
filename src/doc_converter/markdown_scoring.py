@@ -26,6 +26,7 @@ from doc_converter.normalizer import (
     _is_subtitle_candidate,
     _metadata_label_value,
 )
+from doc_converter.structure.body_roots import FinalParagraph, is_body_opening, normalize_body_roots
 from doc_converter.structure.hierarchy_resolver import HierarchyRegime, resolve_hierarchy
 from doc_converter.structure.numbering import numbering, ordinal
 
@@ -475,6 +476,7 @@ def analyze_markdown(
                 ):
                     explicit_title = (
                         b.level == 1
+                        and not is_body_opening(b.text)
                         and b.text not in {"目次", "目录"}
                         and (
                             not unnumbered_hierarchy
@@ -815,8 +817,28 @@ def analyze_markdown(
             else "low"
         )
         b.reason = "；".join(e.reason for e in top.evidence)
+    final_levels, root_audit = normalize_body_roots(
+        [FinalParagraph(
+            b.features["element_id"], b.text, b.role, not b.protected,
+            b.level or None, b.features["structure"],
+        ) for b in blocks], title=str(metadata.get("title", "")),
+    )
+    final_parents = {n["element_id"]: n["parent_id"] for n in root_audit["final_tree"]}
+    for b in blocks:
+        final_level = final_levels.get(b.features["element_id"])
+        if final_level is not None and b.role != f"heading-{final_level}":
+            b.features["role_before_root_normalization"] = b.role
+            b.role = f"heading-{final_level}"
+            b.reason += "；正文根层级归一，保留父子关系及层级差"
+        if final_level is not None:
+            b.features["final_heading_level"] = final_level
+            b.features["heading_level_before_root_check"] = b.features.get("effective_heading_level")
+            b.features["effective_heading_level"] = final_level
+            b.features["effective_parent_id"] = final_parents[b.features["element_id"]]
     return blocks, {
         **hierarchy,
+        "body_root_normalization": root_audit,
+        "final_heading_tree": root_audit["final_tree"],
         "numbering_families": dict(
             Counter(
                 b.features["numbering_family"] for b in blocks if b.features["numbering_family"]
@@ -824,6 +846,6 @@ def analyze_markdown(
         ),
         "technical_standard": standard,
         "scoring_config": config.model_dump(),
-        "stages": ["local-candidates", "shared-document-structure", "final-role-decision"],
+        "stages": ["local-candidates", "shared-document-structure", "final-role-decision", "body-root-consistency"],
         "score_semantics": "heuristic-strength-not-probability",
     }

@@ -14,7 +14,7 @@ from doc_converter.docx_direct.model import DocumentAnalysis, ElementAnalysis
 from doc_converter.structure.numbering import numbering as _numbering
 from doc_converter.structure.numbering import ordinal as _ordinal
 
-HEADING_STYLE = re.compile(r"^(?:heading\s*|标题\s*)([1-6])$", re.I)
+HEADING_STYLE = re.compile(r"^(?:heading\s*|标题\s*|DC_Heading)([1-6])$", re.I)
 AUTHOR_LABEL = re.compile(r"^(?:作者|编制|编写)\s*[:：]\s*\S.{0,39}$")
 ORGANIZATION_LABEL = re.compile(r"^(?:单位|部门|编制单位)\s*[:：]\s*\S.{0,79}$")
 DATE_PATTERN = re.compile(

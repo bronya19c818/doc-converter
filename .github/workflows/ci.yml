@@ -51,6 +51,8 @@ jobs:
         run: uv run python scripts/verify_markdown_scoring.py --fixtures tests/fixtures/markdown_complex --render --baseline-ref c63f1bd75c14ac8cca99a017540ef7c3fb8dbd92 --output artifacts/markdown-complex
       - name: Frontend build
         run: npm run build --prefix frontend
+      - name: Final body roots and written DOCX against Issue 3 baseline
+        run: uv run python scripts/verify_body_roots.py --baseline-ref 7eae06953b45fda0b04215eee079c344532b46fa --check --output artifacts/body-roots
       - name: Selected decision acceptance and pressure artifacts
         if: always()
         run: uv run python scripts/verify_docx_shadow.py --decision-mode hybrid --acceptance --output artifacts/selected-ci

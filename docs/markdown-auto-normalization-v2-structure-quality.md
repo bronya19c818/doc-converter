@@ -39,3 +39,5 @@
 真实 DOC 链路另发现并修复了三类问题：LibreOffice 写出的合法 `start/end` 对齐值不应触发 python-docx 枚举异常；Pandoc 非 standalone 导出省略原生 Title 时，应从原件回收题名；DOC 导出的 `1\.` 编号必须在片段拼接前识别为结构起点，防止标题与其短正文合并。副标题后的作者姓名也不再被当作跨页残句拼接。
 
 架构和质量证据见 [质量评估报告](markdown-quality-v2-repair-coverage.md)，Windows 环境验证见 [Windows Docker 说明](windows-docker-v2-startup-verification.md)。
+
+Issue #4 在最终角色决策后补充共享正文根层级检查，说明、标注修订及对照见 [正文根层级归一报告](body-root-normalization-issue-4.md)。

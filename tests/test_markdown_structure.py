@@ -56,8 +56,8 @@ def test_long_heading_and_weak_action_word_do_not_block_recall():
 
 def test_organization_substrings_do_not_consume_body_heading():
     d = roles("# 仓储报告\n\n## 配送中心管理模式\n\n正文。\n\n## 公司预算管理现状\n\n正文。")
-    assert d["## 配送中心管理模式"]["role"] == "heading-2"
-    assert d["## 公司预算管理现状"]["role"] == "heading-2"
+    assert d["## 配送中心管理模式"]["role"] == "heading-1"
+    assert d["## 公司预算管理现状"]["role"] == "heading-1"
     assert "organization" not in result("# 仓储报告\n\n## 配送中心管理模式\n\n正文。").metadata
 
 

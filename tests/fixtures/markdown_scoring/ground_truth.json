@@ -1018,22 +1018,30 @@
         {
           "line": 3,
           "text": "## 一、背景",
-          "role": "heading-2"
+          "role": "heading-1",
+          "issue4_previous_role": "heading-2",
+          "needs_repair": true
         },
         {
           "line": 5,
           "text": "### （一）范围",
-          "role": "heading-3"
+          "role": "heading-2",
+          "issue4_previous_role": "heading-3",
+          "needs_repair": true
         },
         {
           "line": 7,
           "text": "1. 核查对象",
-          "role": "heading-4"
+          "role": "heading-3",
+          "issue4_previous_role": "heading-4",
+          "needs_repair": true
         },
         {
           "line": 9,
           "text": "（1）具体措施",
-          "role": "heading-5"
+          "role": "heading-4",
+          "issue4_previous_role": "heading-5",
+          "needs_repair": true
         },
         {
           "line": 11,
@@ -1043,22 +1051,30 @@
         {
           "line": 13,
           "text": "## 二、目标",
-          "role": "heading-2"
+          "role": "heading-1",
+          "issue4_previous_role": "heading-2",
+          "needs_repair": true
         },
         {
           "line": 15,
           "text": "### （二）措施",
-          "role": "heading-3"
+          "role": "heading-2",
+          "issue4_previous_role": "heading-3",
+          "needs_repair": true
         },
         {
           "line": 17,
           "text": "2. 实施安排",
-          "role": "heading-4"
+          "role": "heading-3",
+          "issue4_previous_role": "heading-4",
+          "needs_repair": true
         },
         {
           "line": 19,
           "text": "（2）反馈步骤",
-          "role": "heading-5"
+          "role": "heading-4",
+          "issue4_previous_role": "heading-5",
+          "needs_repair": true
         },
         {
           "line": 21,
@@ -1143,22 +1159,30 @@
         {
           "line": 7,
           "text": "## 1. 范围",
-          "role": "heading-2"
+          "role": "heading-1",
+          "issue4_previous_role": "heading-2",
+          "needs_repair": true
         },
         {
           "line": 9,
           "text": "### 1.1 基本范围",
-          "role": "heading-3"
+          "role": "heading-2",
+          "issue4_previous_role": "heading-3",
+          "needs_repair": true
         },
         {
           "line": 11,
           "text": "1.1.1 具体范围",
-          "role": "heading-4"
+          "role": "heading-3",
+          "issue4_previous_role": "heading-4",
+          "needs_repair": true
         },
         {
           "line": 13,
           "text": "1.1.1.1 深层范围",
-          "role": "heading-5"
+          "role": "heading-4",
+          "issue4_previous_role": "heading-5",
+          "needs_repair": true
         },
         {
           "line": 15,
@@ -1167,5 +1191,6 @@
         }
       ]
     }
-  ]
+  ],
+  "issue4_annotation_revision": "完整正文根不再从H2开始；仅指定文件的正文标题统一减1，保留 issue4_previous_role 供审查；附录、角色身份和正文标签不变。"
 }

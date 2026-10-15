@@ -469,20 +469,23 @@
         {
           "line": 15,
           "text": "## 1. 研究范围",
-          "role": "heading-2",
-          "needs_repair": false
+          "role": "heading-1",
+          "needs_repair": true,
+          "issue4_previous_role": "heading-2"
         },
         {
           "line": 17,
           "text": "### 1.1 研究对象",
-          "role": "heading-3",
-          "needs_repair": false
+          "role": "heading-2",
+          "needs_repair": true,
+          "issue4_previous_role": "heading-3"
         },
         {
           "line": 19,
           "text": "1.1.1 样本边界",
-          "role": "heading-4",
-          "needs_repair": true
+          "role": "heading-3",
+          "needs_repair": true,
+          "issue4_previous_role": "heading-4"
         },
         {
           "line": 21,
@@ -493,8 +496,9 @@
         {
           "line": 23,
           "text": "1.1.2 校验口径",
-          "role": "heading-4",
-          "needs_repair": true
+          "role": "heading-3",
+          "needs_repair": true,
+          "issue4_previous_role": "heading-4"
         },
         {
           "line": 25,
@@ -505,8 +509,9 @@
         {
           "line": 27,
           "text": "## 2. 结果",
-          "role": "heading-2",
-          "needs_repair": false
+          "role": "heading-1",
+          "needs_repair": true,
+          "issue4_previous_role": "heading-2"
         },
         {
           "line": 29,
@@ -1368,5 +1373,6 @@
         }
       ]
     }
-  ]
+  ],
+  "issue4_annotation_revision": "完整正文根不再从H2开始；仅指定文件的正文标题统一减1，保留 issue4_previous_role 供审查；附录、角色身份和正文标签不变。"
 }
