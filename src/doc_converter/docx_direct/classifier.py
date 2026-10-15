@@ -19,6 +19,7 @@ from doc_converter.docx_direct.model import (
 from doc_converter.docx_direct.resolver import resolve_candidates
 from doc_converter.docx_direct.scoring import ScoringConfig, decide, score_roles
 from doc_converter.docx_direct.source_structure_recovery import finish_source_audit
+from doc_converter.structure.body_roots import FinalParagraph, normalize_body_roots
 
 SUPPORTED_ROLES = frozenset(
     {
@@ -42,7 +43,7 @@ SUPPORTED_ROLES = frozenset(
     }
 )
 
-_HEADING_STYLE = re.compile(r"^(?:heading\s*|heading)([1-6])$", re.IGNORECASE)
+_HEADING_STYLE = re.compile(r"^(?:heading\s*|DC_Heading)([1-6])$", re.IGNORECASE)
 _NUMBERED_PREFIXES = (
     (re.compile(r"^\s*一、"), 1),
     (re.compile(r"^\s*（[一二三四五六七八九十百]+）"), 2),
@@ -114,6 +115,41 @@ def classify_document(
             select_decision(element, config, decision_mode)
         )
         select_explicit_role(element)
+        facts["root_source_level"] = facts.get("native_heading_level")
+        facts["explicit_outline_anchor"] = bool(element.paragraph_properties.get("outline_level"))
+        if facts["root_source_level"] is None and facts["explicit_outline_anchor"]:
+            outline = facts.get("outline_level")
+            if isinstance(outline, int) and 0 <= outline <= 5:
+                facts["root_source_level"] = outline + 1
+    final_levels, root_audit = normalize_body_roots([
+        FinalParagraph(
+            e.element_id, e.text, e.selected_decision.role,
+            e.selected_decision.action == "mapped" and not e.features.get("has_complex_object")
+            and not e.features.get("list") and e.table_context is None,
+            e.features.get("root_source_level"), e.features,
+        ) for e in legacy.elements if e.selected_decision is not None
+    ])
+    baselines["body_root_normalization"] = root_audit
+    baselines["final_heading_tree"] = root_audit["final_tree"]
+    final_parents = {n["element_id"]: n["parent_id"] for n in root_audit["final_tree"]}
+    for e in legacy.elements:
+        target = final_levels.get(e.element_id)
+        if target is None or e.selected_decision is None:
+            continue
+        e.features["final_heading_level"] = target
+        e.features["heading_level_before_root_check"] = e.features.get("effective_heading_level")
+        e.features["effective_heading_level"] = target
+        e.features["local_heading_level"] = target
+        e.features["effective_parent_id"] = final_parents[e.element_id]
+        e.features["parent_heading_id"] = final_parents[e.element_id]
+        if e.selected_decision.role != f"heading-{target}":
+            reason = "最终正文根层级检查：" + root_audit["reason"]
+            e.features["role_before_root_normalization"] = e.selected_decision.role
+            e.selected_decision = e.selected_decision.model_copy(update={
+                "role": f"heading-{target}",
+                "reasons": [*e.selected_decision.reasons, reason],
+            })
+            e.selection_reason = f"{e.selection_reason}；{reason}"
     finish_source_audit(legacy.elements, baselines)
     return legacy.model_copy(update={
         "classification_mode": decision_mode,
@@ -490,3 +526,4 @@ def _metadata_like(text: str) -> bool:
 
 def _is_reference_boundary(text: str) -> bool:
     return text.strip().lower().rstrip("：:") in {"参考文献", "参考资料", "references"}
+

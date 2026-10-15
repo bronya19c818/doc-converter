@@ -28,6 +28,7 @@ RUN pip install --no-cache-dir .
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 RUN useradd --create-home --uid 1000 appuser \
+    && sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh \
     && chmod +x /usr/local/bin/docker-entrypoint.sh \
     && mkdir -p /data \
     && chown -R appuser:appuser /app /data
@@ -40,3 +41,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl --fail --silent http://127.0.0.1:8765/health || exit 1
 
 CMD ["uvicorn", "doc_converter.api:create_app", "--factory", "--host", "0.0.0.0", "--port", "8765"]
+

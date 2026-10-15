@@ -9,7 +9,6 @@ from zipfile import ZIP_DEFLATED, BadZipFile, ZipFile
 
 import yaml
 from docx import Document
-from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from doc_converter.importers.base import ImporterError, ImportResult
 from doc_converter.renderer import RendererError, resolve_pandoc
@@ -141,11 +140,16 @@ def _promote_docx_title_area(markdown: str, source_path: Path) -> str:
         return markdown
 
     candidates: list[tuple[int, int, str, float]] = []
+    native_titles: set[str] = set()
     for index, paragraph in enumerate(document.paragraphs):
         style_name = paragraph.style.name if paragraph.style is not None else ""
         if style_name.lower().startswith("heading"):
             break
-        if paragraph.alignment != WD_ALIGN_PARAGRAPH.CENTER:
+        # start/end are valid OOXML logical alignments not supported by the enum.
+        native_title = style_name.casefold() in {"title", "标题"}
+        if native_title and paragraph.text.strip():
+            native_titles.add(paragraph.text.strip())
+        if not native_title and style_name.casefold() not in {"subtitle", "副标题"} and not paragraph._p.xpath('./w:pPr/w:jc[@w:val="center"]'):
             continue
         size = max(
             (
@@ -165,7 +169,9 @@ def _promote_docx_title_area(markdown: str, source_path: Path) -> str:
     if not candidates:
         return markdown
 
-    title_candidates = [item for item in candidates if not _is_title_preface_text(item[2])]
+    title_candidates = [item for item in candidates if item[2] in native_titles]
+    if not title_candidates:
+        title_candidates = [item for item in candidates if not _is_title_preface_text(item[2])]
     if not title_candidates:
         return markdown
     largest_size = max(item[3] for item in title_candidates)
@@ -293,3 +299,4 @@ def _relative_to_job(source_path: Path, job_directory: Path) -> str:
         return source_path.relative_to(job_directory).as_posix()
     except ValueError:
         return str(source_path.resolve())
+

@@ -14,7 +14,7 @@ def test_confirmed_document_title_is_moved_to_front_matter() -> None:
         confirmed_roles={1: "document-title"},
     )
 
-    assert result.markdown.startswith("---\nschema: normalized-md/v1\ntitle: 项目建设方案\n---")
+    assert result.markdown.startswith("---\nschema: normalized-md/v2\ntitle: 项目建设方案\n---")
     assert "# 一、建设背景" in result.markdown
     assert "# 项目建设方案" not in result.markdown
     assert result.report["changes"] == [
@@ -125,15 +125,15 @@ date: 2026-09-18
     assert result.markdown.index("authors:") < result.markdown.index("date:")
 
 
-def test_unconfirmed_heading_stays_in_working_copy_and_suggestion_is_not_required() -> None:
+def test_document_title_is_automatically_extracted_without_confirmation() -> None:
     result = normalize_markdown(
         "# 项目方案\n\n正文。\n",
         filename="方案.md",
         confirmed_roles={},
     )
 
-    assert "# 项目方案" in result.markdown
-    assert result.metadata == {}
+    assert "# 项目方案" not in result.markdown
+    assert result.metadata == {"title": "项目方案"}
     assert result.report["integrity"]["passed"] is True
 
 
@@ -168,8 +168,8 @@ title: “人工智能+”行动下全国公共资源交易数智化发展实践
     assert result.report["integrity"]["passed"] is True
     assert {change["to"] for change in result.report["changes"]} >= {
         "document-subtitle",
-        "abstract",
-        "keywords",
+        "abstract-label",
+        "keywords-label",
     }
 
 
@@ -283,7 +283,7 @@ XX公司
     assert result.metadata["authors"] == ["何宏山"]
     assert result.metadata["organization"] == "XX公司"
     assert result.metadata["department"] == "采购部"
-    assert "# 项目标题" in result.markdown
+    assert result.metadata["title"] == "项目标题"
 
 
 def test_h1_name_after_front_matter_title_is_extracted_as_author() -> None:
@@ -367,10 +367,10 @@ def test_flat_atx_headings_are_releveled_from_chinese_and_numeric_numbering() ->
 
     result = normalize_markdown(source, filename="采购方案.md", confirmed_roles={})
 
-    assert "# 采购数字化实施路径及典型场景" in result.markdown
-    assert "## （一）实施路径" in result.markdown
-    assert "### 1. 连接集成全量要素数据" in result.markdown
-    assert "#### （1）数据治理要求" in result.markdown
+    assert result.metadata["title"] == "采购数字化实施路径及典型场景"
+    assert "# （一）实施路径" in result.markdown
+    assert "## 1. 连接集成全量要素数据" in result.markdown
+    assert "### （1）数据治理要求" in result.markdown
     assert any(change["to"] == "heading-level" for change in result.report["changes"])
 
 
@@ -428,9 +428,9 @@ def test_technical_standard_numbered_headings_support_bare_subheadings() -> None
 
     result = normalize_markdown(source, filename="标准.md", confirmed_roles={})
 
-    assert "## 5 盘点分类" in result.markdown
-    assert "### 5.1 盘点范围" in result.markdown
-    assert "#### 5.1.1 全面盘点" in result.markdown
+    assert "# 5 盘点分类" in result.markdown
+    assert "## 5.1 盘点范围" in result.markdown
+    assert "### 5.1.1 全面盘点" in result.markdown
 
 
 def test_technical_standard_bare_root_and_decimal_headings_are_promoted() -> None:
@@ -445,9 +445,9 @@ def test_technical_standard_bare_root_and_decimal_headings_are_promoted() -> Non
 
     result = normalize_markdown(source, filename="标准.md", confirmed_roles={})
 
-    assert "## 1 范围" in result.markdown
-    assert "### 1.1 适用范围" in result.markdown
-    assert "#### 1.1.1 特殊范围" in result.markdown
+    assert "# 1 范围" in result.markdown
+    assert "## 1.1 适用范围" in result.markdown
+    assert "### 1.1.1 特殊范围" in result.markdown
 
 
 def test_flattened_heading_siblings_keep_the_same_level() -> None:
@@ -470,8 +470,8 @@ def test_flattened_heading_siblings_keep_the_same_level() -> None:
 
     result = normalize_markdown(source, filename="方案.md", confirmed_roles={})
 
-    assert "## 1. 第一项" in result.markdown
-    assert "## 2. 第二项" in result.markdown
+    assert "# 1. 第一项" in result.markdown
+    assert "# 2. 第二项" in result.markdown
     assert "## （一）第一子项" in result.markdown
     assert "## （二）第二子项" in result.markdown
     assert "### （1）细分一" in result.markdown
@@ -632,7 +632,7 @@ def test_short_escaped_numbered_paragraph_is_promoted_to_heading() -> None:
 
     result = normalize_markdown(source, filename="压力测试.md", confirmed_roles={})
 
-    assert "## 1. 数字编号标题但使用普通正文样式 〔CASE-MANUAL-003〕" in result.markdown
+    assert "# 1. 数字编号标题但使用普通正文样式 〔CASE-MANUAL-003〕" in result.markdown
 
 
 def test_unescaped_single_numbered_list_item_is_not_promoted() -> None:
@@ -662,12 +662,12 @@ def test_numbered_bare_heading_requires_short_text_and_text_ending() -> None:
         confirmed_roles={},
     )
 
-    assert "## 1. 短标题内容" in short.markdown
+    assert "# 1. 短标题内容" in short.markdown
     assert "## " not in long_result.markdown.split("---", 2)[-1]
     assert "## 1. 以逗号结尾" not in punctuation_result.markdown
 
 
-def test_preprocess_line_mapping_keeps_confirmed_roles_on_original_lines() -> None:
+def test_preprocess_line_mapping_preserves_explicit_metadata_and_source_lines() -> None:
     source = """---
 title: 原始标题
 ---
@@ -689,8 +689,9 @@ title: 原始标题
         confirmed_roles={9: "document-title"},
     )
 
-    assert result.metadata["title"] == "项目真实标题"
-    assert "# 项目真实标题" not in result.markdown
+    assert result.metadata["title"] == "原始标题"
+    assert "# 项目真实标题" in result.markdown
+    assert next(d for d in result.report["decisions"] if d["before"] == "# 项目真实标题")["line"] == 9
 
 
 def test_toc_without_a_following_heading_and_fenced_code_are_preserved() -> None:
@@ -722,3 +723,4 @@ Q/GDW 1234—2024
     result = normalize_markdown(source, filename="标准.md", confirmed_roles={})
 
     assert "```markdown\nQ/GDW 1234—2024\n# 5.1 示例字段\n5.1 示例字段\n```" in result.markdown
+

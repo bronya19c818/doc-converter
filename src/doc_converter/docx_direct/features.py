@@ -7,13 +7,14 @@ refined by the context resolver on the shadow copy only.
 from __future__ import annotations
 
 import re
-import unicodedata
 from collections import Counter
 from typing import Any
 
 from doc_converter.docx_direct.model import DocumentAnalysis, ElementAnalysis
+from doc_converter.structure.numbering import numbering as _numbering
+from doc_converter.structure.numbering import ordinal as _ordinal
 
-HEADING_STYLE = re.compile(r"^(?:heading\s*|标题\s*)([1-6])$", re.I)
+HEADING_STYLE = re.compile(r"^(?:heading\s*|标题\s*|DC_Heading)([1-6])$", re.I)
 AUTHOR_LABEL = re.compile(r"^(?:作者|编制|编写)\s*[:：]\s*\S.{0,39}$")
 ORGANIZATION_LABEL = re.compile(r"^(?:单位|部门|编制单位)\s*[:：]\s*\S.{0,79}$")
 DATE_PATTERN = re.compile(
@@ -40,37 +41,6 @@ AUTHOR_AFFILIATION = re.compile(
 )
 REFERENCE_BOUNDARIES = {"参考文献", "参考资料", "references"}
 TERMINAL_PUNCTUATION = "。；：，、？！.!?,;:"
-NUMBERING_PATTERNS = (
-    ("CHAPTER", re.compile(r"^第\s*[一二三四五六七八九十百\d]+\s*章")),
-    ("SECTION", re.compile(r"^第\s*[一二三四五六七八九十百\d]+\s*节")),
-    ("CN_ENUM", re.compile(r"^[一二三四五六七八九十百]+、")),
-    ("CN_BRACKET", re.compile(r"^[（(][一二三四五六七八九十百]+[）)]")),
-    ("DECIMAL", re.compile(r"^\d+(?:\.\d+)+(?=\s|[^\d.])")),
-    ("ARABIC_ENUM", re.compile(r"^\d+[.、](?=\s|[^\d.])|^\d+\s+")),
-    ("ARABIC_BRACKET", re.compile(r"^[（(]\d+[）)]")),
-    ("CIRCLED", re.compile(r"^[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]")),
-    ("ARABIC_ENUM", re.compile(r"^\d{1,2}(?=[\u4e00-\u9fff])")),
-)
-
-
-def _ordinal(token: str | None) -> list[int]:
-    if not token:
-        return []
-    digits = re.findall(r"\d+", token)
-    if digits:
-        return [int(n) for n in digits]
-    if token[0] in "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳":
-        return [int(unicodedata.numeric(token[0]))]
-    value, current = 0, 0
-    numbers = {c: i for i, c in enumerate("零一二三四五六七八九")}
-    for c in token:
-        if c in numbers:
-            current = numbers[c]
-        elif c in "十百":
-            value += (current or 1) * (10 if c == "十" else 100)
-            current = 0
-    return [value + current] if value + current else []
-
 
 def _native_heading(element: ElementAnalysis) -> int | None:
     for value in (element.original_style_id, element.original_style_name):
@@ -78,16 +48,6 @@ def _native_heading(element: ElementAnalysis) -> int | None:
         if match:
             return int(match.group(1))
     return None
-
-
-def _numbering(text: str) -> tuple[str | None, int | None, str | None]:
-    for family, pattern in NUMBERING_PATTERNS:
-        match = pattern.match(text)
-        if match:
-            token = match.group().strip()
-            depth = token.count(".") + 1 if family == "DECIMAL" else None
-            return family, depth, token
-    return None, None, None
 
 
 def _number(value: Any) -> float | None:
@@ -256,3 +216,4 @@ def extract_document_features(
         f["common_body_alignment"] = bool(baseline["common_body_alignment"]
                                            and f["alignment"] == baseline["common_body_alignment"])
     return features, baseline
+

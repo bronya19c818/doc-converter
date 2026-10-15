@@ -67,6 +67,7 @@ def preprocess_markdown(
     markdown: str,
     *,
     line_map: list[int] | None = None,
+    normalize_structure: bool = True,
 ) -> MarkdownPreprocessResult:
     """Apply the safe subset of the former Dify Markdown cleanup pipeline."""
 
@@ -92,20 +93,21 @@ def preprocess_markdown(
     if repaired:
         changes.append({"to": "repair-broken-paragraph", "count": repaired})
 
-    text = "\n".join(lines)
-    standard_document = _looks_like_technical_standard(text)
-    lines, mapped_lines, bare_heading_changes = _normalize_standard_subheading_lines(
-        lines,
-        mapped_lines,
-        standard_document,
-    )
-    changes.extend(bare_heading_changes)
-    lines, mapped_lines, heading_changes = _normalize_heading_lines(
-        lines,
-        mapped_lines,
-        standard_document=standard_document,
-    )
-    changes.extend(heading_changes)
+    if normalize_structure:
+        text = "\n".join(lines)
+        standard_document = _looks_like_technical_standard(text)
+        lines, mapped_lines, bare_heading_changes = _normalize_standard_subheading_lines(
+            lines,
+            mapped_lines,
+            standard_document,
+        )
+        changes.extend(bare_heading_changes)
+        lines, mapped_lines, heading_changes = _normalize_heading_lines(
+            lines,
+            mapped_lines,
+            standard_document=standard_document,
+        )
+        changes.extend(heading_changes)
     while lines and not lines[0].strip():
         lines.pop(0)
         mapped_lines.pop(0)
@@ -142,12 +144,9 @@ def _remove_duplicate_standard_code_lines(
     removed = 0
     output: list[str] = []
     output_map: list[int] = []
-    in_fence = False
-    for line, source_line in zip(lines, line_map, strict=True):
-        stripped = line.strip()
-        if stripped.startswith(("```", "~~~")):
-            in_fence = not in_fence
-        if not in_fence and is_standard_code_line(line):
+    protected = _protected_source_lines(lines)
+    for index, (line, source_line) in enumerate(zip(lines, line_map, strict=True)):
+        if index not in protected and is_standard_code_line(line):
             key = re.sub(r"\s+", "", line).upper()
             if key in seen:
                 output.append("")
@@ -168,55 +167,47 @@ def remove_toc_sections(text: str) -> tuple[str, int]:
     return "\n".join(output), removed
 
 
+def _protected_source_lines(lines: list[str]) -> set[int]:
+    from markdown_it import MarkdownIt
+
+    protected: set[int] = set()
+    for token in MarkdownIt("commonmark", {"html": True}).enable("table").parse("\n".join(lines)):
+        if token.map and token.level == 0 and token.type not in {"heading_open", "paragraph_open"}:
+            protected.update(range(*token.map))
+    return protected
+
+
 def _remove_toc_lines(
-    lines: list[str],
-    line_map: list[int],
+    lines: list[str], line_map: list[int],
 ) -> tuple[list[str], list[int], int]:
     output: list[str] = []
     output_map: list[int] = []
     skipping = False
     removed = 0
-    in_fence = False
+    protected = _protected_source_lines(lines)
     for index, (line, source_line) in enumerate(zip(lines, line_map, strict=True)):
-        stripped = line.strip()
-        if stripped.startswith(("```", "~~~")):
-            if skipping:
-                skipping = False
-            in_fence = not in_fence
+        if index in protected:
+            skipping = False
             output.append(line)
             output_map.append(source_line)
             continue
-        if not in_fence and _TOC_HEADING_PATTERN.fullmatch(stripped):
-            if not _has_following_heading(lines, index):
-                output.append(line)
-                output_map.append(source_line)
-                continue
+        if _TOC_HEADING_PATTERN.fullmatch(line.strip()) and _has_following_heading(lines, index):
             skipping = True
             removed += 1
             continue
-        if skipping:
-            if re.match(r"^#{1,6}\s+\S", stripped):
-                skipping = False
-                output.append(line)
-                output_map.append(source_line)
-            else:
-                removed += 1
+        if skipping and not re.match(r"^#{1,6}\s+\S", line.strip()):
+            removed += 1
             continue
+        skipping = False
         output.append(line)
         output_map.append(source_line)
     return output, output_map, removed
 
 
 def _has_following_heading(lines: list[str], start: int) -> bool:
-    in_fence = False
-    for line in lines[start + 1 :]:
-        stripped = line.strip()
-        if stripped.startswith(("```", "~~~")):
-            in_fence = not in_fence
-            continue
-        if not in_fence and re.match(r"^#{1,6}\s+\S", stripped):
-            return True
-    return False
+    protected = _protected_source_lines(lines)
+    return any(index not in protected and re.match(r"^#{1,6}\s+\S", line.strip())
+               for index, line in enumerate(lines) if index > start)
 
 
 def repair_broken_paragraphs(text: str) -> tuple[str, int]:
@@ -231,55 +222,52 @@ def _repair_broken_paragraph_lines(
     lines: list[str],
     line_map: list[int],
 ) -> tuple[list[str], list[int], int]:
-    blocks: list[tuple[str, list[int]]] = []
-    current_lines: list[str] = []
-    current_map: list[int] = []
+    from markdown_it import MarkdownIt
 
-    def flush() -> None:
-        if current_lines and any(item.strip() for item in current_lines):
-            blocks.append(("\n".join(current_lines).strip(), current_map.copy()))
-        current_lines.clear()
-        current_map.clear()
-
-    for line, source_line in zip(lines, line_map, strict=True):
-        if line.strip():
-            current_lines.append(line)
-            current_map.append(source_line)
-        else:
-            flush()
-    flush()
-
-    result: list[tuple[str, list[int]]] = []
+    # Parser spans preserve code indentation, blank lines and nested structures.
+    tokens = MarkdownIt("commonmark", {"html": True}).enable("table").parse("\n".join(lines))
+    spans = [token.map for token in tokens if token.type == "paragraph_open" and token.level == 0 and token.map]
+    edits: dict[int, tuple[int, str, int]] = {}
+    previous: tuple[int, int, str] | None = None
     repaired = 0
-    for part, part_map in blocks:
-        if result and _should_merge_fragment(result[-1][0], part):
-            previous, previous_map = result[-1]
-            result[-1] = (
-                previous.rstrip() + part.lstrip(),
-                previous_map[:-1] + [previous_map[-1]] + part_map[1:],
-            )
-            repaired += 1
-        else:
-            result.append((part, part_map))
-
+    for span in spans:
+        start, end = span
+        text = "\n".join(lines[start:end])
+        protected = bool(re.match(r"^\s*\[\^?[^]]+\]:", text))
+        if previous and not protected:
+            pstart, pend, ptext = previous
+            if not any(line.strip() for line in lines[pend:start]) and _should_merge_fragment(ptext, text):
+                merged = ptext.rstrip() + text.lstrip()
+                edits[pstart] = (end, merged, line_map[pstart])
+                previous = (pstart, end, merged)
+                repaired += 1
+                continue
+        previous = None if protected else (start, end, text)
     output: list[str] = []
-    output_map: list[int] = []
-    for index, (part, part_map) in enumerate(result):
-        if index:
-            output.append("")
-            output_map.append(part_map[0])
-        part_lines = part.splitlines() or [part]
-        output.extend(part_lines)
-        output_map.extend(part_map[: len(part_lines)] or [part_map[0]] * len(part_lines))
-    return output, output_map, repaired
+    mapped: list[int] = []
+    index = 0
+    while index < len(lines):
+        if index in edits:
+            end, merged, source_line = edits[index]
+            parts = merged.splitlines()
+            output.extend(parts)
+            mapped.extend([source_line] * len(parts))
+            index = end
+        else:
+            output.append(lines[index])
+            mapped.append(line_map[index])
+            index += 1
+    return output, mapped, repaired
 
 
 def _should_merge_fragment(previous: str, current: str) -> bool:
     previous = previous.strip()
     current = current.strip()
+    if previous.startswith(("——", "—", "--")):
+        return False
     if not previous or not current or _is_structural_start(current):
         return False
-    if previous.startswith(("#", "|", "```", "~~~")):
+    if _is_structural_start(previous) or previous.startswith(("- ", "* ", "+ ", "> ")):
         return False
     if re.search(r"[。！？.!?]$", previous):
         return False
@@ -295,8 +283,8 @@ def _should_merge_fragment(previous: str, current: str) -> bool:
 
 
 def _is_structural_start(value: str) -> bool:
-    first = value.strip()
-    if first.startswith(("#", "|", "```", "~~~")) or _TITLE_AREA_LABEL_PATTERN.match(first):
+    first = _unescape_ordered_heading_marker(value).strip()
+    if first in {"摘要", "关键词"} or first.startswith(("#", "|", "```", "~~~")) or _TITLE_AREA_LABEL_PATTERN.match(first):
         return True
     if _heading_kind(first, standard_document=False) is not None:
         return True
@@ -755,3 +743,4 @@ def _looks_like_standard_heading_text(title: str) -> bool:
             "将",
         )
     )
+

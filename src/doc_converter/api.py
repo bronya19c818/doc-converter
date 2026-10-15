@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -17,7 +16,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, statu
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from doc_converter.docx_direct import analyze_docx, normalize_docx_direct
 from doc_converter.docx_direct.audit import AUDIT_FILENAMES
@@ -25,26 +24,10 @@ from doc_converter.docx_direct.model import DecisionMode
 from doc_converter.filename import safe_docx_filename
 from doc_converter.importers import ImporterError, ImportResult, import_document
 from doc_converter.importers.libreoffice import resolve_libreoffice
-from doc_converter.normalizer import (
-    _HEADING_PATTERN,
-    _LABEL_PATTERN,
-    _NUMBERED_HEADING_PATTERN,
-    _extract_front_matter,
-    _infer_title_area_role,
-    _is_date_candidate,
-    _is_subtitle_candidate,
-    _leading_metadata_barrier,
-    _metadata_label_value,
-    _non_empty_blocks,
-    normalize_markdown,
-)
+from doc_converter.normalizer import normalize_markdown
 from doc_converter.renderer import RendererError, render_docx
 from doc_converter.style_library import StyleLibrary, StylePack, create_style_pack
 from doc_converter.style_schema import migrate_roles
-
-_SUGGESTION_TITLE_AREA_LABEL_PATTERN = re.compile(
-    r"^\s*(作者单位|作者|单位|机构|组织|部门|所属部门|日期|时间|发布时间)\s*[:：]\s*(.*)$"
-)
 
 
 class StylePackRequest(BaseModel):
@@ -61,18 +44,6 @@ class StylePackRevisionRequest(StylePackRequest):
     base_version: int = Field(ge=1)
 
 
-class ConfirmationRequest(BaseModel):
-    """Explicit user confirmations for semantic-role suggestions."""
-
-    confirmed_roles: dict[str, str] = Field(default_factory=dict)
-
-
-class DraftRequest(BaseModel):
-    """A complete editable Markdown work copy."""
-
-    source_markdown: str
-
-
 class DraftResponse(BaseModel):
     """The imported or edited Markdown working copy for one job."""
 
@@ -82,10 +53,9 @@ class DraftResponse(BaseModel):
 
 
 class RenderRequest(BaseModel):
-    """The current work copy and optional structure actions for rendering."""
+    """Render immutable imported source with the selected style version."""
 
-    source_markdown: str | None = None
-    confirmed_roles: dict[str, str] = Field(default_factory=dict)
+    model_config = ConfigDict(extra="forbid")
     style_pack_id: str | None = None
     style_pack_version: int | None = Field(default=None, ge=1)
 
@@ -108,6 +78,7 @@ class JobRecord(BaseModel):
     conversion_mode: Literal["round-trip", "docx-direct"] = "round-trip"
     source_original_name: str = ""
     import_warnings: list[str] = Field(default_factory=list)
+    processing_warnings: list[str] = Field(default_factory=list)
     style_pack_id: str
     style_pack_version: int
     suggestions: list[dict[str, Any]] = Field(default_factory=list)
@@ -157,7 +128,6 @@ class JobStore:
         import_result: ImportResult,
         style_pack_id: str,
         style_pack_version: int,
-        suggestions: list[dict[str, Any]],
     ) -> JobRecord:
         created_at = datetime.now(timezone.utc)
         job = JobRecord(
@@ -169,7 +139,6 @@ class JobStore:
             import_warnings=import_result.warnings,
             style_pack_id=style_pack_id,
             style_pack_version=style_pack_version,
-            suggestions=suggestions,
             created_at=created_at,
             source_hash=_source_hash(import_result.markdown),
         )
@@ -177,7 +146,6 @@ class JobStore:
         (job_directory / "source" / "imported.md").write_text(
             import_result.markdown, encoding="utf-8"
         )
-        self.write_draft(job.id, import_result.markdown)
         import_report = {
             "source_format": import_result.source_format,
             "source_original_name": source_original_name,
@@ -223,20 +191,16 @@ class JobStore:
             job.model_dump_json(indent=2), encoding="utf-8"
         )
 
-    def read_draft(self, job_id: str) -> str:
-        """Read the editable Markdown copy, including jobs written by older versions."""
-
-        work_path = self.path_for(job_id) / "work" / "source.md"
-        legacy_path = self.path_for(job_id) / "source.md"
-        path = work_path if work_path.is_file() or not legacy_path.is_file() else legacy_path
+    def read_source(self, job: JobRecord) -> str:
+        """Read first import; recover old jobs only from their original upload."""
+        path = self.path_for(job.id) / "source" / "imported.md"
+        if not path.is_file():
+            original = self.path_for(job.id) / "source" / f"original{Path(job.source_name).suffix.lower()}"
+            if not original.is_file():
+                raise ValueError("未找到原始上传文件，请重新选择源文件转换。")
+            imported = import_document(original, job_directory=self.path_for(job.id))
+            path.write_text(imported.markdown, encoding="utf-8")
         return path.read_text(encoding="utf-8")
-
-    def write_draft(self, job_id: str, markdown: str) -> None:
-        """Persist an editable Markdown copy under the job's work directory."""
-
-        path = self.path_for(job_id) / "work" / "source.md"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(markdown, encoding="utf-8")
 
     def path_for(self, job_id: str) -> Path:
         return self._jobs_root / job_id
@@ -345,20 +309,19 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
             import_result=imported,
             style_pack_id=style_pack_id,
             style_pack_version=style_pack_version,
-            suggestions=_suggest_semantic_roles(imported.markdown),
         )
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str) -> JobRecord:
         return _get_job_or_404(job_store, job_id)
 
-    @app.get("/api/jobs/{job_id}/draft")
+    @app.get("/api/jobs/{job_id}/draft", deprecated=True)
     def get_draft(job_id: str) -> DraftResponse:
         job = _get_job_or_404(job_store, job_id)
         if job.conversion_mode == "docx-direct":
             raise HTTPException(status_code=404, detail="直接规范化任务没有 Markdown 工作副本。")
         try:
-            markdown = job_store.read_draft(job.id)
+            markdown = job_store.read_source(job)
         except FileNotFoundError as error:
             raise HTTPException(status_code=404, detail="未找到该任务的 Markdown 工作副本。") from error
         return DraftResponse(
@@ -367,24 +330,10 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
             warnings=job.import_warnings,
         )
 
-    @app.put("/api/jobs/{job_id}/draft")
-    def save_draft(job_id: str, request: DraftRequest) -> JobRecord:
-        job = _get_job_or_404(job_store, job_id)
-        if job.conversion_mode == "docx-direct":
-            raise HTTPException(status_code=409, detail="直接规范化任务不能修改 Markdown 工作副本。")
-        updated = job.model_copy(
-            update={
-                "status": "ready",
-                "suggestions": _suggest_semantic_roles(request.source_markdown),
-                "error": None,
-                "draft_updated_at": datetime.now(timezone.utc),
-                "source_hash": _source_hash(request.source_markdown),
-                "preview_ready": False,
-            }
-        )
-        job_store.write_draft(job.id, request.source_markdown)
-        job_store.save(updated)
-        return updated
+    @app.put("/api/jobs/{job_id}/draft", deprecated=True)
+    def save_draft(job_id: str) -> None:
+        _get_job_or_404(job_store, job_id)
+        raise HTTPException(status_code=410, detail="工作副本编辑接口已移除，请在源文件或输出 DOCX 中修改后重新转换。")
 
     @app.post("/api/jobs/{job_id}/normalize-and-render")
     def normalize_and_render(job_id: str, request: RenderRequest) -> JobRecord:
@@ -392,33 +341,23 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
         if job.conversion_mode == "docx-direct":
             raise HTTPException(status_code=409, detail="请使用 DOCX 直接规范化接口。")
         job_directory = job_store.path_for(job.id)
-        confirmed_roles = {int(line): role for line, role in request.confirmed_roles.items()}
         try:
-            source_markdown = request.source_markdown
-            if source_markdown is not None:
-                job_store.write_draft(job.id, source_markdown)
-                job = job.model_copy(
-                    update={
-                        "draft_updated_at": datetime.now(timezone.utc),
-                        "source_hash": _source_hash(source_markdown),
-                    }
-                )
-            normalized = normalize_markdown(
-                job_store.read_draft(job.id),
-                filename=job.source_name,
-                confirmed_roles=confirmed_roles,
-            )
+            source_markdown = job_store.read_source(job)
+            normalized = normalize_markdown(source_markdown, filename=job.source_name)
             if not normalized.report["integrity"]["passed"]:
                 raise ValueError("内容完整性校验失败，已阻止 DOCX 生成。")
 
             normalized_path = job_directory / "document.normalized.md"
             normalized_path.write_text(normalized.markdown, encoding="utf-8")
-            (job_directory / "normalization-report.json").write_text(
-                json.dumps(normalized.report, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-            (job_directory / "confirmation.json").write_text(
-                json.dumps(request.confirmed_roles, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            processing_warnings: list[str] = []
+            report_artifacts: list[str] = []
+            try:
+                (job_directory / "normalization-report.json").write_text(
+                    json.dumps(normalized.report, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                report_artifacts.append("normalization-report.json")
+            except OSError:
+                processing_warnings.append("DOCX 仍可生成，处理报告未能保存。")
             style_pack_id = request.style_pack_id or job.style_pack_id
             style_pack_version = request.style_pack_version or job.style_pack_version
             try:
@@ -435,12 +374,24 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
                 style_pack.model_dump_json(indent=2), encoding="utf-8"
             )
             output_name = safe_docx_filename(normalized.metadata.get("title"), job.source_name)
-            render_docx(
+            staged_output = job_directory / "work" / "render-candidate.docx"
+            rendered = render_docx(
                 markdown=normalized.markdown,
+                role_decisions=normalized.report["decisions"],
                 style_pack=style_pack,
-                output_path=job_directory / output_name,
+                output_path=staged_output,
                 work_dir=job_directory / "work",
             )
+            try:
+                (job_directory / "output-verification.json").write_text(
+                    json.dumps(rendered.verification, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                report_artifacts.append("output-verification.json")
+            except OSError:
+                processing_warnings.append("输出格式校验报告未能保存。")
+            if not rendered.verification["passed"]:
+                processing_warnings.append(f"输出格式复核发现 {rendered.verification['failed_checks']} 项差异，详见输出校验报告。")
+            staged_output.replace(job_directory / output_name)
             render_revision = job.render_revision + 1
             preview_path = job_directory / "preview" / f"document-{render_revision}.pdf"
             preview_ready = _convert_docx_to_pdf(job_directory / output_name, preview_path)
@@ -451,11 +402,11 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
                     "artifacts": [
                         output_name,
                         "document.normalized.md",
-                        "normalization-report.json",
-                        "confirmation.json",
+                        *report_artifacts,
                         "style-pack.snapshot.json",
                     ],
                     "error": None,
+                    "processing_warnings": processing_warnings,
                     "output_name": output_name,
                     "render_revision": render_revision,
                     "preview_ready": preview_ready,
@@ -463,7 +414,7 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
             )
             job_store.save(completed)
             return completed
-        except (RendererError, ValueError) as error:
+        except (RendererError, ImporterError, OSError, ValueError) as error:
             failed = job.model_copy(update={"status": "failed", "error": str(error)})
             job_store.save(failed)
             raise HTTPException(status_code=422, detail=str(error)) from error
@@ -553,152 +504,9 @@ def create_app(*, data_root: Path | None = None, frontend_dist: Path | None = No
 
         @app.get("/")
         def frontend() -> FileResponse:
-            return FileResponse(index_path)
+            return FileResponse(index_path, headers={"Cache-Control": "no-cache"})
 
     return app
-
-
-def _suggest_semantic_roles(source: str) -> list[dict[str, Any]]:
-    """Return deterministic, actionable title-area role suggestions.
-
-    Suggestions deliberately include the source line and the original text for
-    every role except the legacy first-title suggestion.  The UI uses that text
-    as an anchor after an earlier action removes a line and shifts line numbers.
-    """
-
-    try:
-        raw_metadata, content_lines, first_content_line = _extract_front_matter(source)
-    except ValueError:
-        raw_metadata, content_lines, first_content_line = {}, source.splitlines(), 1
-
-    metadata = {str(key): value for key, value in raw_metadata.items()}
-    suggestions: list[dict[str, Any]] = []
-    seen_roles: set[str] = set()
-    title_found = bool(metadata.get("title"))
-
-    def present(role: str) -> bool:
-        key = {"document-title": "title", "document-subtitle": "subtitle", "author": "authors"}.get(
-            role, role
-        )
-        return bool(metadata.get(key)) or role in seen_roles
-
-    def add(
-        *,
-        line: int,
-        role: str,
-        score: float,
-        reason: str,
-        value: str | None = None,
-        end_line: int | None = None,
-    ) -> None:
-        if present(role):
-            return
-        item: dict[str, Any] = {"line": line, "role": role, "score": score, "reason": reason}
-        if value is not None and role != "document-title":
-            item["value"] = value
-        if end_line is not None and end_line != line and role != "document-title":
-            item["end_line"] = end_line
-        suggestions.append(item)
-        seen_roles.add(role)
-
-    barrier = _leading_metadata_barrier(content_lines)
-    for block_start, block_end, block_lines in _non_empty_blocks(content_lines[:barrier]):
-        block_text = "\n".join(line.strip() for line in block_lines).strip()
-        line_number = first_content_line + block_start
-        end_line = first_content_line + block_end - 1
-        heading_match = _HEADING_PATTERN.match(block_text)
-
-        if len(block_lines) == 1 and heading_match:
-            heading_text = heading_match.group(2).strip()
-            if _NUMBERED_HEADING_PATTERN.match(block_text):
-                break
-            if not title_found:
-                add(line=line_number, role="document-title", score=0.9, reason="首个无编号 H1")
-                title_found = True
-                continue
-            if _infer_title_area_role(heading_text) == "authors":
-                add(
-                    line=line_number,
-                    role="author",
-                    score=0.92,
-                    reason="标题区短姓名 H1，可作为作者",
-                    value=block_text,
-                )
-                continue
-            if _is_subtitle_candidate([heading_text]):
-                add(
-                    line=line_number,
-                    role="document-subtitle",
-                    score=0.75,
-                    reason="标题后的无编号 H1，可作为副标题",
-                    value=block_text,
-                )
-                continue
-            continue
-
-        label_match = _LABEL_PATTERN.match(block_text)
-        if label_match and title_found:
-            role = "abstract" if label_match.group(1) == "摘要" else "keywords"
-            add(
-                line=line_number,
-                role=role,
-                score=0.98,
-                reason=f"检测到{label_match.group(1)}标签",
-                value=block_text,
-                end_line=end_line,
-            )
-            continue
-
-        title_area_match = _SUGGESTION_TITLE_AREA_LABEL_PATTERN.match(block_text)
-        if title_area_match and title_found:
-            label = title_area_match.group(1)
-            value = title_area_match.group(2).strip()
-            if label in {"日期", "时间", "发布时间"}:
-                role = "date"
-            else:
-                mapped_role, _ = _metadata_label_value(label, value)
-                role = {"authors": "author"}.get(mapped_role or "", mapped_role or "")
-            if role and value:
-                add(
-                    line=line_number,
-                    role=role,
-                    score=0.98,
-                    reason=f"检测到{label}标签",
-                    value=block_text,
-                    end_line=end_line,
-                )
-                continue
-
-        if title_found and len(block_lines) == 1:
-            value = block_text
-            inferred_role = _infer_title_area_role(value)
-            if inferred_role == "authors":
-                inferred_role = "author"
-            if inferred_role is None and _is_date_candidate(value):
-                inferred_role = "date"
-            if inferred_role:
-                add(
-                    line=line_number,
-                    role=inferred_role,
-                    score=0.9,
-                    reason="标题区短行符合确定性识别规则",
-                    value=value,
-                )
-                continue
-            if _is_subtitle_candidate(block_lines):
-                add(
-                    line=line_number,
-                    role="document-subtitle",
-                    score=0.75,
-                    reason="标题后的短文本，可作为副标题",
-                    value=value,
-                )
-                continue
-
-        # An ordinary paragraph is the end of the title area.  Do not scan
-        # later body text for names or organization markers.
-        break
-    return suggestions
 
 
 def _source_hash(source: str) -> str:
@@ -811,3 +619,4 @@ def _default_data_root() -> Path:
 
 def _default_frontend_dist() -> Path:
     return Path(__file__).resolve().parent / "web"
+
