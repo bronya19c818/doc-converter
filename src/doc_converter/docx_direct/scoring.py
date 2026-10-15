@@ -175,9 +175,9 @@ def score_roles(features: dict[str, Any], config: ScoringConfig) -> list[RoleCan
                     20 if role == "document-title" else -15, "是文前最大主导字号")
             elif role == "document-subtitle" and centered:
                 add("subtitle_smaller", 10, "居中且字号小于文前最大值")
-            if f["body_sentence"] or f["text_length"] > 80:
+            if f["body_sentence"] or f["text_length"] > 80 and f.get("semantic_preface_role") not in {"document-title", "document-subtitle"}:
                 add("title_body_sentence", -100, "正文长句与文前标题冲突")
-            if metadata or f["numbering_family"] or f["native_heading_level"] or f["caption_pattern"]:
+            if metadata or f["numbering_family"] or (f["native_heading_level"] and f.get("semantic_preface_role") not in {"document-title", "document-subtitle"}) or f["caption_pattern"]:
                 add("title_other_content", -80, "元数据、编号、原生章节标题或题注证据")
         elif role in {"author", "organization-department", "date"}:
             label = {"author": "explicit_author_label", "organization-department": "explicit_organization_label", "date": "explicit_date"}[role]
@@ -225,7 +225,7 @@ def score_roles(features: dict[str, Any], config: ScoringConfig) -> list[RoleCan
                 add("unsupported_list", 150, "自动列表继续保留")
             if f["custom_style"] and not f["body_sentence"]:
                 add("custom_style_weak_content", 65, "自定义样式且缺少完整正文内容证据")
-            if f["has_complex_object"] or f["has_manual_break"]:
+            if f["has_complex_object"] or f["has_manual_break"] and f.get("semantic_preface_role") not in {"document-title", "document-subtitle"}:
                 add("complex_object", 150, "域、图形、嵌入对象、数学对象或手工换行需保留结构")
             if not any((f["native_heading_level"], f["numbering_family"], metadata,
                         f["body_sentence"], f["caption_pattern"], f["reference_boundary"])):
@@ -237,9 +237,21 @@ def score_roles(features: dict[str, Any], config: ScoringConfig) -> list[RoleCan
                 add("non_table_role_in_table", -120, "表格上下文与文档级角色冲突")
             if f["list"] and role != "body-paragraph" and not role.startswith("heading-"):
                 add("role_in_list", -100, "自动列表内容保留")
-            if f["has_complex_object"] or f["has_manual_break"]:
+            if f["has_complex_object"] or f["has_manual_break"] and f.get("semantic_preface_role") not in {"document-title", "document-subtitle"}:
                 add("role_complex_object", -200 if f["has_embedded_object"] or f["has_math"] else -100,
                     "复杂对象降低可安全判定程度；嵌入公式不得由原生标题及编号证据升格")
+        profile = f.get("title_semantics", {})
+        semantic_role = "heading-1" if role == "heading-1" else role
+        if semantic_role in profile.get("scores", {}):
+            add("title_semantic_" + role.removeprefix("document-").replace("heading-1", "heading"),
+                (0 if f["numbering_family"] else min(15, profile["scores"][semantic_role])) if role == "heading-1" else profile["scores"][semantic_role], "表达原型：" + ", ".join(m["prototype"] for m in profile["matches"] if m["role"] == semantic_role))
+        joint_role = f.get("semantic_preface_role")
+        if joint_role == role:
+            contribute(candidate, config, "title_subtitle_relation", 120 if role != "heading-1" else 80,
+                       "文前联合比较：表达结构、主副题关系和独立正文边界相互印证", context=True)
+        elif joint_role in {"document-title", "document-subtitle"} and role.startswith("heading-"):
+            contribute(candidate, config, "cover_heading_conflict", -160,
+                       "联合文前证据说明原生 Heading 是封面角色，不能同时参与章节树", context=True)
     return candidates
 
 
@@ -277,3 +289,4 @@ def decide(candidates: list[RoleCandidate], config: ScoringConfig) -> Classifica
         score=score, margin=margin, top_role=top.role, runner_up_role=second.role,
         runner_up_score=second.resolved_score, confidence_band=band,
     )
+

@@ -13,6 +13,8 @@ from doc_converter.docx_direct.scoring import ScoringConfig, contribute
 
 def _safe_heading(f: dict[str, Any]) -> bool:
     return bool(
+        f.get("semantic_preface_role") not in {"document-title", "document-subtitle"}
+        and
         f["short_text"] and not f["body_sentence"] and f["table_context"] is None
         and not f["list"]
         and not f.get("manual_sequence_candidate", False)
@@ -52,7 +54,7 @@ def _assign_shadow_regions(features: list[dict[str, Any]], config: ScoringConfig
                           "person_name_pattern", "author_name_list_shape", "organization_pattern", "caption_pattern",
                           "reference_boundary", "has_complex_object", "has_manual_break")
         )
-        if outside and (_safe_heading(f) or sentence_boundary or plain_boundary):
+        if outside and f.get("semantic_preface_role") not in {"document-title", "document-subtitle"} and (_safe_heading(f) or sentence_boundary or plain_boundary):
             body_started = True
         region = "postface" if postface_started else "body" if body_started else "preface"
         f.update(region=region, is_preface=region == "preface",
@@ -158,7 +160,7 @@ def resolve_candidates(
         (i, next(c for c in roles if c.role == "document-title"))
         for i, (f, roles) in enumerate(zip(features, candidates, strict=True))
         if f["is_preface"] and f["table_context"] is None and f["short_text"]
-        and (f["alignment"] == "center" or f["native_title_style"] == "title"
+        and (f.get("semantic_preface_role") == "document-title" or f["alignment"] == "center" or f["native_title_style"] == "title"
              or f["font_size_to_body_ratio"] is not None
              and f["font_size_to_body_ratio"] >= config.larger_font_ratio)
         and not f["body_sentence"] and not any(f[k] for k in (
@@ -261,3 +263,4 @@ def resolve_candidates(
         "primary_title_element_index": title_index,
         **hierarchy,
     }
+

@@ -88,6 +88,7 @@ def normalize_markdown(
     )
     content_lines = preprocessed.text.splitlines()
     metadata = _normalize_metadata(raw_metadata)
+    explicit_metadata = set(metadata)
     blocks, context = analyze_markdown(content_lines, metadata, preprocessed.line_map,
                                        canonical=raw_metadata.get("schema") == "normalized-md/v2")
     changes: list[dict[str, Any]] = list(preprocessed.changes)
@@ -121,8 +122,12 @@ def normalize_markdown(
             if role in METADATA_ROLE_KEYS:
                 key = METADATA_ROLE_KEYS[role]
                 value = block.metadata_value or block.inline
-                if key not in metadata or metadata[key] in (None, "", []):
-                    metadata[key] = _split_list_value(value, separators="；;，,、\n") if key == "authors" else _split_list_value(value) if key == "keywords" else value
+                continuation = (
+                    key in {"title", "subtitle"} and key not in explicit_metadata and key in metadata
+                    and block.features.get("semantic_preface_role") == role
+                )
+                if key not in metadata or metadata[key] in (None, "", []) or continuation:
+                    metadata[key] = str(metadata[key]) + "\n\n" + value if continuation else _split_list_value(value, separators="；;，,、\n") if key == "authors" else _split_list_value(value) if key == "keywords" else value
                     end = block.end
                     if block.text in {"摘要", "关键词"}:
                         next_block = next((b for b in blocks if b.start >= block.end), None)
@@ -197,7 +202,9 @@ def _extract_front_matter(source: str) -> tuple[dict[str, Any], list[str], int]:
 
 def _serialize_front_matter(metadata: dict[str, Any], body: str) -> str:
     ordered: dict[str, Any] = {"schema": "normalized-md/v2"}
-    for key in _METADATA_KEYS:
+    for key in metadata:
+        if key not in _METADATA_KEYS:
+            continue
         if key in metadata and metadata[key] not in (None, "", []):
             ordered[key] = metadata[key]
     unknown = {key: value for key, value in metadata.items() if key not in _METADATA_KEYS and key != "schema"}
@@ -210,7 +217,9 @@ def _normalize_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     """Coerce supported metadata to stable JSON/YAML-friendly values."""
 
     normalized: dict[str, Any] = {}
-    for key in _METADATA_KEYS:
+    for key in metadata:
+        if key not in _METADATA_KEYS:
+            continue
         if key not in metadata:
             continue
         value = metadata[key]

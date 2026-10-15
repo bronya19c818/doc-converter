@@ -53,6 +53,8 @@ jobs:
         run: npm run build --prefix frontend
       - name: Final body roots and written DOCX against Issue 3 baseline
         run: uv run python scripts/verify_body_roots.py --baseline-ref 7eae06953b45fda0b04215eee079c344532b46fa --check --output artifacts/body-roots
+      - name: Title roles, actual DOCX styles and whole-source main comparison
+        run: uv run python scripts/verify_title_semantics.py --baseline-ref 45827fb46d27df9454d3680fcb6cb2252c6842d5 --render --benchmark --check --output artifacts/title-semantics
       - name: Selected decision acceptance and pressure artifacts
         if: always()
         run: uv run python scripts/verify_docx_shadow.py --decision-mode hybrid --acceptance --output artifacts/selected-ci

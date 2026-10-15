@@ -159,3 +159,5 @@ Markdown / DOC 的自动规范化复用原生 DOCX 的编号序列、局部章�
 Shell 脚本检出固定 LF，镜像构建另做 CRLF 归一；重建容器无需删除数据卷。样式设置显示异常先 Ctrl+F5，首页 HTML 已配置重新验证。
 
 Issue #4 的完整正文 H2/H3 起步修正、保留边界和两条路径输出对照见 [正文根层级归一报告](docs/body-root-normalization-issue-4.md)。
+
+Issue #5 的共享主副标题表达证据与最终角色接入见 [标题语义机制](docs/title-semantics-issue-5.md)，同批样本前后指标、实际 DOCX 检查、性能及残余漏识别见 [质量报告](docs/title-semantics-quality-issue-5.md)。

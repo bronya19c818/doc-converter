@@ -29,6 +29,11 @@ from doc_converter.normalizer import (
 from doc_converter.structure.body_roots import FinalParagraph, is_body_opening, normalize_body_roots
 from doc_converter.structure.hierarchy_resolver import HierarchyRegime, resolve_hierarchy
 from doc_converter.structure.numbering import numbering, ordinal
+from doc_converter.structure.title_semantics import (
+    TitleParagraph,
+    select_title_area,
+    semantic_profile,
+)
 
 _LABEL = re.compile(
     r"^(作者单位|作者|单位|机构|组织|部门|所属部门|日期|时间|发布时间|摘要|关键词)\s*[:：]\s*([\s\S]*)$"
@@ -278,7 +283,16 @@ def analyze_markdown(
             "weak_body_words": bool(_BODY_WORDS.search(b.text)),
             "protected": b.protected,
             "source_line": line_map[b.start],
+            "title_semantics": semantic_profile(b.text),
         }
+    title_area = select_title_area([
+        TitleParagraph(
+            f"md-{i}", b.text, b.level,
+            blocked=b.protected or bool(re.search(r"!\[|<img\b", b.inline)),
+            metadata=bool(_LABEL.match(b.text) or _metadata_shape(b.text)),
+            preface_boundary=bool(re.match(r"^摘要(?:\s*[:：]|$)", b.text)),
+        ) for i, b in enumerate(blocks)
+    ], title=str(metadata.get("title", "")), subtitle=str(metadata.get("subtitle", "")))
     seen = {key for key, value in metadata.items() if value not in (None, "", [])}
     preface = True
     references = False
@@ -501,6 +515,18 @@ def analyze_markdown(
                             150 if explicit_title else 95,
                             "首个题名与后续正文/元数据结构一致",
                         )
+        profile = f["title_semantics"]
+        if not b.protected:
+            for semantic_role, value in profile["scores"].items():
+                if semantic_role == "heading-1":
+                    value = 0 if family else min(15, value)
+                add(semantic_role, "title_semantic_" + semantic_role.removeprefix("document-").replace("heading-1", "heading"),
+                    value, "表达原型：" + ", ".join(m["prototype"] for m in profile["matches"] if m["role"] == semantic_role))
+            joint_role = title_area["selected"].get(f"md-{index}")
+            if joint_role:
+                f["semantic_preface_role"] = joint_role
+                add(joint_role, "title_subtitle_relation", 150 if joint_role != "heading-1" else 80,
+                    "文前联合比较：表达结构、主副题关系和独立正文边界相互印证", context=True)
         b.candidates = list(candidates.values())
         top = max(b.candidates, key=lambda c: c.resolved_score)
         b.role = top.role
@@ -838,6 +864,7 @@ def analyze_markdown(
     return blocks, {
         **hierarchy,
         "body_root_normalization": root_audit,
+        "title_area": title_area,
         "final_heading_tree": root_audit["final_tree"],
         "numbering_families": dict(
             Counter(
