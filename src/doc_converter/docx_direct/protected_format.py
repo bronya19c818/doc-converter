@@ -8,6 +8,7 @@ from docx.oxml.ns import qn
 
 from doc_converter.docx_direct.effective_format import EffectiveFormatResolver
 from doc_converter.docx_direct.formatting import _GUARDED_ANCESTORS, _GUARDED_RUN_CONTENT
+from doc_converter.docx_direct.pictures import is_inline_picture_run
 
 FORMAT_KEYS = ("font_slots", "font_size_pt", "font_size_cs_pt", "bold", "bold_cs", "italic", "italic_cs", "color", "underline", "highlight", "vert_align")
 
@@ -40,8 +41,13 @@ def protected_run_indices(paragraph: Any, field_runs: frozenset[Any]) -> set[int
 def protected_format_matches(
     before: Any, after: Any, source_resolver: EffectiveFormatResolver,
     output_resolver: EffectiveFormatResolver, field_runs: frozenset[Any],
+    *, allow_picture_run_inheritance_change: bool = False,
 ) -> bool:
     indices = protected_run_indices(before, field_runs)
+    if allow_picture_run_inheritance_change:
+        # Picture-only runs have no text; their line-box inheritance follows image layout.
+        indices -= {i for i, run in enumerate(before.iter(qn("w:r")))
+                    if run not in field_runs and is_inline_picture_run(run)}
     has_external_text = before.find(".//" + qn("m:oMath")) is not None or before.find(".//" + qn("w:object")) is not None
     if not indices and not has_external_text:
         return True

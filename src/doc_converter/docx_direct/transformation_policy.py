@@ -12,7 +12,7 @@ from doc_converter.docx_direct.model import Action
 PropertyMode = Literal["replace", "preserve", "discard", "conditional"]
 PolicyFamily = Literal[
     "heading-strong", "structural-metadata", "caption-strong", "body-mixed",
-    "table-body-mixed", "reference-mixed", "composite-metadata", "preserve",
+    "table-body-mixed", "reference-mixed", "composite-metadata", "image-paragraph", "preserve",
 ]
 
 # Executors only change allowed formatting nodes; these are never removed.
@@ -119,6 +119,11 @@ REFERENCE_POLICY = _policy("reference-mixed")
 BODY_MIXED_POLICY = _policy("body-mixed")
 TABLE_BODY_POLICY = _policy("table-body-mixed", table=True)
 PRESERVE_POLICY = _policy("preserve", preserve=True)
+IMAGE_POLICY = TransformationPolicy(
+    name="image-paragraph", family="image-paragraph",
+    paragraph_rules=BODY_MIXED_POLICY.paragraph_rules,
+    run_rules=PRESERVE_POLICY.run_rules,
+)
 
 _ROLE_POLICIES = {
     **dict.fromkeys(
@@ -137,6 +142,7 @@ _ROLE_POLICIES = {
     **dict.fromkeys(("abstract-label", "keywords-label"), COMPOSITE_POLICY),
     "reference-entry": REFERENCE_POLICY,
     "body-paragraph": BODY_MIXED_POLICY,
+    "image": IMAGE_POLICY,
     **dict.fromkeys(("body-table", "table-column-header"), TABLE_BODY_POLICY),
 }
 

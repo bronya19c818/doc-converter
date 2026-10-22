@@ -5,6 +5,7 @@ from typing import Any
 
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from lxml import etree  # type: ignore[import-untyped]
 
 from doc_converter.docx_direct.analyzer import _iter_paragraphs, analyze_docx
 from doc_converter.docx_direct.effective_format import EffectiveFormatResolver
@@ -99,7 +100,21 @@ def verify_effective_format(analysis: DocumentAnalysis, output: Path, pack: Styl
             raise ValueError("受保护 Run 数量变化。")
         old_values = source_resolver.resolve_paragraph(original_p, paragraph_style_id=None)["run_statistics"]["runs"] if old_indices else []
         new_values = output_resolver.resolve_paragraph(p, paragraph_style_id=None)["run_statistics"]["runs"] if new_indices else []
+        image_layout = (
+            decision.role == "image" and audit.style_application_status in {"applied", "guarded"}
+            and before.signals.get("standalone_image") and after.signals.get("standalone_image")
+        )
+        if image_layout:
+            old_content = [etree.tostring(n, method="c14n", exclusive=True) for n in original_p if n.tag != qn("w:pPr")]
+            new_content = [etree.tostring(n, method="c14n", exclusive=True) for n in p if n.tag != qn("w:pPr")]
+            if old_content != new_content:
+                raise ValueError(f"图片段落内容或尺寸变化：{before.element_id}")
         for old_i, new_i in zip(old_indices, new_indices, strict=True):
+            if image_layout:
+                audit.format_checks.append({"property": f"protected-run[{new_i}].text-format",
+                                            "expected": None, "actual": None, "match": None,
+                                            "excluded_reason": "纯图片 Run 无文字，字体继承随图片段落布局；图片 XML 保留"})
+                continue
             for key in FORMAT_KEYS:
                 wanted, actual = old_values[old_i][key], new_values[new_i][key]
                 audit.format_checks.append({"property": f"protected-run[{new_i}].{key}", "expected": wanted,

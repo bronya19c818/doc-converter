@@ -36,6 +36,13 @@ def select_explicit_role(element: ElementAnalysis) -> None:
         if caption:
             role = caption
             reason = "明确图表标题或制图人/制表人标签，同段时间沿用署名样式"
+    if (element.signals.get("standalone_image")
+            and not element.effective_format.get("has_numbering")
+            and not element.features.get("list")
+            and not element.signals.get("has_section_break")
+            and (element.table_context or {}).get("vertical_merge") != "continue"):
+        role = "image"
+        reason = "独立嵌入式图片段落，仅映射段落样式，保留图片内容、尺寸与关系"
     if role:
         element.selected_decision = ClassificationDecision(
             role=role, confidence=1, action="mapped", reasons=[reason or role],

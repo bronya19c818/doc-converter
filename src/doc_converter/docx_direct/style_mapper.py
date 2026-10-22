@@ -187,7 +187,8 @@ def _patch_document_xml(
         candidate = deepcopy(paragraph)
         apply_paragraph_policy(candidate, policy, TransformationAudit(policy_name=policy.name, policy_family=policy.family, transform_safety="safe"), target_style=target_style)
         if target_style in guarded_style_ids or (
-            source_resolver is not None and output_resolver is not None and not protected_format_matches(paragraph, candidate, source_resolver, output_resolver, field_runs)
+            source_resolver is not None and output_resolver is not None and not protected_format_matches(paragraph, candidate, source_resolver, output_resolver, field_runs,
+                allow_picture_run_inheritance_change=decision.role == "image" and bool(element.signals.get("standalone_image")))
         ):
             audit.transform_safety = "preserve"
             audit.skipped_properties.append(PropertyDecision(

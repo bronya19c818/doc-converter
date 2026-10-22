@@ -110,6 +110,10 @@ class EffectiveFormatResolver:
 
         return {
             **paragraph_values,
+            'has_numbering': qn('w:numPr') in paragraph_properties or any(
+                qn('w:numPr') in style.paragraph_properties
+                for style in self._style_chain(resolved_style_id or self._default_style_id)
+            ),
             'font_name': base_values['font_name'],
             'font_size_pt': effective_size,
             'bold': effective_bold,

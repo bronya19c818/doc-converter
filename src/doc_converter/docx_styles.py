@@ -122,6 +122,12 @@ def _apply_role(
                 "alignment": image_data.get("alignment", "center"),
                 "space_before_pt": image_data.get("space_before_pt", 0),
                 "space_after_pt": image_data.get("space_after_pt", 0),
+                "first_line_indent_pt": 0,
+                "left_indent_pt": 0,
+                "right_indent_pt": 0,
+                # Inline images need an automatic line box, even with fixed source defaults.
+                "line_spacing_rule": "multiple",
+                "line_spacing_multiple": 1,
             }
         _apply_paragraph(style, paragraph_data, font_size_pt)
         if role and role.startswith("heading-"):

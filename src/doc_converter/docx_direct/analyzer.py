@@ -12,7 +12,9 @@ from docx.oxml import parse_xml
 from docx.oxml.ns import qn
 
 from doc_converter.docx_direct.effective_format import EffectiveFormatResolver
+from doc_converter.docx_direct.formatting import protected_field_runs
 from doc_converter.docx_direct.model import DocumentAnalysis, ElementAnalysis
+from doc_converter.docx_direct.pictures import is_standalone_picture
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 P_TAG = f"{{{W_NS}}}p"
@@ -68,6 +70,7 @@ def analyze_docx(source_path: Path) -> DocumentAnalysis:
     if body is None:
         raise ValueError("DOCX 的 word/document.xml 缺少 w:body。")
 
+    field_runs = protected_field_runs(body)
     for order, (paragraph, xml_path, table_context) in enumerate(_iter_paragraphs(body)):
         style_id = _paragraph_style_id(paragraph)
         style_name = style_map.get(style_id, style_id) if style_id is not None else None
@@ -82,6 +85,11 @@ def analyze_docx(source_path: Path) -> DocumentAnalysis:
                 table_context=table_context,
                 resolver=resolver,
             )
+        )
+
+        elements[-1].signals["standalone_image"] = (
+            is_standalone_picture(paragraph)
+            and not any(run in field_runs for run in paragraph.iter(qn("w:r")))
         )
 
     return DocumentAnalysis(
