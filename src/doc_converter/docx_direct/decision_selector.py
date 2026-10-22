@@ -30,7 +30,7 @@ def is_strong_legacy_anchor(element: ElementAnalysis) -> bool:
         return bool(f["is_preface"] and f[labels[legacy.role]])
     if legacy.role in {"table-caption", "figure-caption"}:
         expected = {"表", "table"} if legacy.role == "table-caption" else {"图", "figure"}
-        return bool(f["caption_pattern"] in expected or element.signals.get("caption_credit"))
+        return bool(f["caption_pattern"] in expected and f["short_text"] and not f["body_sentence"])
     return bool(
         legacy.role == "reference-heading" and f["reference_boundary"]
         or legacy.role == "reference-entry" and f["is_postface"]

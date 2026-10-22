@@ -133,7 +133,7 @@ _ROLE_POLICIES = {
         STRUCTURAL_STRONG_POLICY,
     ),
     **dict.fromkeys((f"heading-{i}" for i in range(1, 7)), HEADING_POLICY),
-    **dict.fromkeys(("table-caption", "figure-caption"), CAPTION_POLICY),
+    **dict.fromkeys(("table-caption", "figure-caption", "table-credit", "figure-credit"), CAPTION_POLICY),
     **dict.fromkeys(("abstract-label", "keywords-label"), COMPOSITE_POLICY),
     "reference-entry": REFERENCE_POLICY,
     "body-paragraph": BODY_MIXED_POLICY,

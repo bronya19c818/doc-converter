@@ -40,6 +40,7 @@ export function App() {
   const [isRendering, setIsRendering] = useState(false)
   const [previewFullscreen, setPreviewFullscreen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const settingsDirtyRef = useRef(false)
   const settingsTriggerRef = useRef<HTMLButtonElement>(null)
   const settingsCloseRef = useRef<HTMLButtonElement>(null)
   const settingsDialogRef = useRef<HTMLDivElement>(null)
@@ -121,6 +122,7 @@ export function App() {
   }
 
   function closeSettings() {
+    if (settingsDirtyRef.current && !window.confirm('有未保存的样式修改，仍要关闭设置吗？')) return
     setSettingsOpen(false)
     settingsTriggerRef.current?.focus()
   }
@@ -146,7 +148,7 @@ export function App() {
         dialog.querySelectorAll<HTMLElement>(
           'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
         ),
-      ).filter((element) => element.getAttribute('aria-hidden') !== 'true')
+      ).filter((element) => element.getAttribute('aria-hidden') !== 'true' && !element.closest('[hidden]') && !element.closest('details:not([open])'))
       if (!focusable.length) {
         event.preventDefault()
         return
@@ -193,7 +195,7 @@ export function App() {
         dialog.querySelectorAll<HTMLElement>(
           'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], iframe, [tabindex]:not([tabindex="-1"])',
         ),
-      ).filter((element) => element.getAttribute('aria-hidden') !== 'true')
+      ).filter((element) => element.getAttribute('aria-hidden') !== 'true' && !element.closest('[hidden]') && !element.closest('details:not([open])'))
       if (!focusable.length) {
         event.preventDefault()
         return
@@ -233,10 +235,22 @@ export function App() {
         <p className="brand-tagline">让内容自由流转</p>
       </header>
 
+      <div className="workspace-toolbar">
+        <label htmlFor="active-style-pack">样式预设</label>
+        <select aria-label="样式预设" id="active-style-pack" disabled={busy || !stylePacks.length} onChange={(event) => {
+          if (settingsDirtyRef.current && !window.confirm('切换预设会放弃未保存的修改，继续吗？')) return
+          settingsDirtyRef.current = false
+          setSelectedPackId(event.target.value)
+        }} value={selectedPackId}>
+          {stylePacks.map((pack) => <option key={pack.id} value={pack.id}>{pack.name} · v{pack.version}</option>)}
+        </select>
+        <button aria-label="打开设置" aria-expanded={settingsOpen} aria-controls="settings-panel-root" className="secondary-action" onClick={openSettings} ref={settingsTriggerRef} type="button">
+          <IconSettings aria-hidden="true" size={18} />编辑样式
+        </button>
+      </div>
       <section className="workspace" aria-label="文档格式转换工作区">
-        <section className="source-panel" aria-label="源文件工作区">
+        <section className={sourceFile ? "source-panel" : "source-panel is-empty"} aria-label="源文件工作区">
           <div className="panel-title">
-            <span className="section-number">01</span>
             <div>
               <h2>源文件工作区</h2>
               <p>选择 Markdown、DOCX 或 DOC 文件。</p>
@@ -262,20 +276,15 @@ export function App() {
             </span>
           </div>
           <p className="field-help source-help">源文件不会被改动。</p>
-          <p className="conversion-help">
+          {sourceFile ? <p className="conversion-help">
             {directMode ? '自动识别段落并应用样式，保留表格、图片和页面布局。' : '自动识别标题层级和文前信息，统一格式并生成 DOCX。'}
-          </p>
+          </p> : null}
           {job?.import_warnings?.length ? (
             <p className="field-help" role="status">导入提示：{job.import_warnings.join('；')}</p>
           ) : null}
           {job?.processing_warnings?.length ? (
             <p className="field-help" role="status">{job.processing_warnings.join('；')}</p>
           ) : null}
-          <ol className="conversion-steps" aria-label="转换步骤">
-            <li>选择源文件</li>
-            <li>点击开始转换</li>
-            <li>预览并下载 DOCX</li>
-          </ol>
           {error ? <p className="error-message" role="alert">{error}</p> : null}
         </section>
 
@@ -288,16 +297,15 @@ export function App() {
         >
           <div className="preview-heading">
             <div>
-              <span className="section-number">02</span>
               <div>
                 <h2>转换结果预览</h2>
-                <p>转换完成后可在此查看结果。</p>
+                <p>{completedJob ? (sourceFile?.name ?? completedJob.source_original_name) : ""}</p>
               </div>
             </div>
             <div className="preview-heading-actions">
               {completedJob || isRendering ? (
                 <span className={isRendering ? 'processing-status' : 'completed-status'}>
-                  {isRendering ? '正在转换' : '已生成'}
+                  {isRendering ? '正在转换' : completedJob && selectedPack && (completedJob.style_pack_id !== selectedPack.id || completedJob.style_pack_version !== selectedPack.version) ? '样式已更新，待重新转换' : '已生成'}
                 </span>
               ) : null}
               <button
@@ -334,9 +342,8 @@ export function App() {
             </div>
           ) : (
             <div className="preview-empty">
-              <img alt="" aria-hidden="true" src="/assets/preview-empty-state.png" />
-              <p>转换后可在此查看结果预览。</p>
-              <span>文档生成后，页面内容会显示在这里。</span>
+              <IconFileText aria-hidden="true" size={44} stroke={1.3} />
+              <p>{sourceFile ? "点击开始转换，结果将在这里显示。" : "选择源文件后，在这里预览转换结果。"}</p>
             </div>
           )}
         </section>
@@ -366,7 +373,6 @@ export function App() {
         >
           <div className="settings-heading">
             <div>
-              <span className="section-number">03</span>
               <h2 id="settings-dialog-title">样式设置</h2>
             </div>
             <div className="settings-heading-actions">
@@ -387,7 +393,11 @@ export function App() {
                 className="settings-tab"
                 id={`settings-tab-${tab}`}
                 key={tab}
-                onClick={() => setSettingsTab(tab)}
+                onClick={() => {
+                  if (settingsDirtyRef.current && !window.confirm('切换设置会放弃未保存的修改，继续吗？')) return
+                  settingsDirtyRef.current = false
+                  setSettingsTab(tab)
+                }}
                 role="tab"
                 type="button"
               >
@@ -398,10 +408,8 @@ export function App() {
           <div className="settings-content">
             {settingsTab === 'styles' ? (
               <div aria-labelledby="settings-tab-styles" id="settings-panel-styles" role="tabpanel">
-                <label className="field-label" htmlFor="style-pack">DOCX 样式组合</label>
-                <select disabled={busy} id="style-pack" onChange={(event) => setSelectedPackId(event.target.value)} value={selectedPackId}>
-                  {stylePacks.map((pack) => <option key={pack.id} value={pack.id}>{pack.name} · v{pack.version}</option>)}
-                </select>
+                <div className="preset-context"><strong>{selectedPack?.name}</strong><span>v{selectedPack?.version}</span></div>
+                <details className="new-preset-disclosure"><summary>新建样式组合</summary>
                 <form className="new-pack-form" onSubmit={handleCreateStylePack}>
                   <label className="field-label" htmlFor="new-style-pack">新建样式组合</label>
                   <div>
@@ -409,10 +417,12 @@ export function App() {
                     <button disabled={busy || !newPackName.trim()} type="submit">保存</button>
                   </div>
                 </form>
+                </details>
                 {selectedPack ? (
                   <StyleEditor
                     disabled={busy}
-                    key={`${selectedPack.id}-${selectedPack.version}-roles`}
+                    key={`${selectedPack.id}-roles`}
+                    onDirtyChange={(dirty) => { settingsDirtyRef.current = dirty }}
                     onSaved={(savedPack) => {
                       setStylePacks((packs) => packs.map((pack) => (pack.id === savedPack.id ? savedPack : pack)))
                       setSelectedPackId(savedPack.id)
@@ -428,7 +438,8 @@ export function App() {
                 {selectedPack ? (
                   <StyleEditor
                     disabled={busy}
-                    key={`${selectedPack.id}-${selectedPack.version}-page`}
+                    key={`${selectedPack.id}-page`}
+                    onDirtyChange={(dirty) => { settingsDirtyRef.current = dirty }}
                     onSaved={(savedPack) => {
                       setStylePacks((packs) => packs.map((pack) => (pack.id === savedPack.id ? savedPack : pack)))
                       setSelectedPackId(savedPack.id)
@@ -444,6 +455,7 @@ export function App() {
       </section>
 
       <div aria-label="快捷操作" className="floating-actions">
+        <span className="action-context" title={sourceFile?.name}>{sourceFile?.name ?? "选择源文件后开始转换"}</span>
         <button
           aria-label={isRendering ? '正在转换' : '开始转换'}
           className="action-fab generate-fab"
@@ -476,18 +488,7 @@ export function App() {
             </div>
           ) : null}
         </div>
-        <button
-          aria-controls="settings-panel-root"
-          aria-expanded={settingsOpen}
-          aria-label="打开设置"
-          className="settings-fab"
-          onClick={openSettings}
-          ref={settingsTriggerRef}
-          type="button"
-        >
-          <IconSettings aria-hidden="true" size={20} />
-          <span>设置</span>
-        </button>
+
       </div>
     </main>
   )

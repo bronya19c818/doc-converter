@@ -79,9 +79,7 @@ describe('one-click converter', () => {
   })
   it('regenerates the same immutable job using the current style selection', async () => {
     const fetchMock = await setupCompleted()
-    fireEvent.click(screen.getByRole('button', { name: '打开设置' }))
-    fireEvent.change(screen.getByLabelText('DOCX 样式组合'), { target: { value: 'business' } })
-    fireEvent.click(screen.getByRole('button', { name: '收起设置' }))
+    fireEvent.change(screen.getByLabelText('样式预设'), { target: { value: 'business' } })
     fetchMock.mockResolvedValueOnce(response({ ...completed, render_revision: 2 }))
     await clickConvert()
     await waitFor(() => expect(screen.getByTestId('docx-preview')).toHaveTextContent('revision=2'))

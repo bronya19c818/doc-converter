@@ -34,7 +34,9 @@ ROLE_KEYS = (
     "table-column-header",
     "point",
     "table-caption",
+    "table-credit",
     "figure-caption",
+    "figure-credit",
     "image",
     "reference-heading",
     "reference-entry",
@@ -247,6 +249,14 @@ def default_roles() -> dict[str, dict[str, Any]]:
         "figure-caption": _role(
             font={"chinese_font": "黑体", "western_font": "Arial", "size_pt": 14, "bold": True},
             paragraph=centered,
+        ),
+        "table-credit": _role(
+            font={"chinese_font": "黑体", "western_font": "Arial", "size_pt": 14},
+            paragraph={"alignment": "right"},
+        ),
+        "figure-credit": _role(
+            font={"chinese_font": "黑体", "western_font": "Arial", "size_pt": 14},
+            paragraph={"alignment": "right"},
         ),
         "image": _role(
             role_type="image",

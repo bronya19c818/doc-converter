@@ -1,10 +1,11 @@
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useEffect, useRef, useState } from 'react'
 
 import { reviseStylePack, StylePack } from './api'
 
 type StyleEditorProps = {
   disabled: boolean
   onSaved: (pack: StylePack) => void
+  onDirtyChange?: (dirty: boolean) => void
   pack: StylePack
   section?: 'roles' | 'page'
 }
@@ -41,9 +42,11 @@ const ROLE_LABELS: Record<string, string> = {
   'body-table': '表格正文',
   point: '要点',
   'table-caption': '表格标题',
+  'table-credit': '制表人',
   'table-row-header': '行标题',
   'table-column-header': '列标题',
   'figure-caption': '图片标题',
+  'figure-credit': '制图人',
   image: '图片样式',
   'reference-heading': '参考文献标题',
   'reference-entry': '参考文献条目',
@@ -65,8 +68,8 @@ const GROUPS: Record<RoleSection, Array<{ title: string; roles: string[] }>> = {
   body: [
     { title: '标题层级', roles: ['heading-1', 'heading-2', 'heading-3', 'heading-4', 'heading-5', 'heading-6'] },
     { title: '正文', roles: ['body-paragraph', 'point'] },
-    { title: '表格', roles: ['table-caption', 'table-row-header', 'table-column-header', 'body-table'] },
-    { title: '图片', roles: ['figure-caption', 'image'] },
+    { title: '表格', roles: ['table-caption', 'table-credit', 'table-row-header', 'table-column-header', 'body-table'] },
+    { title: '图片', roles: ['figure-caption', 'figure-credit', 'image'] },
   ],
   post: [
     { title: '参考文献（检测到“参考文献”标题后生效）', roles: ['reference-heading', 'reference-entry'] },
@@ -111,23 +114,57 @@ const LINE_SPACING_RULES: Array<{ value: LineSpacingRule; label: string }> = [
 
 const INDENT_KEYS = ['first_line_indent_pt', 'left_indent_pt', 'right_indent_pt'] as const
 
-export function StyleEditor({ disabled, onSaved, pack, section = 'roles' }: StyleEditorProps) {
+export function StyleEditor({ disabled, onSaved, onDirtyChange, pack, section = 'roles' }: StyleEditorProps) {
   const [roles, setRoles] = useState<RoleMap>(() => editableRolesFor(pack))
+  const [savedRoles, setSavedRoles] = useState<RoleMap>(() => editableRolesFor(pack))
+  const [saveNotice, setSaveNotice] = useState('')
+  const inspectorRef = useRef<HTMLDivElement>(null)
+  const reportedDirty = useRef<boolean | undefined>(undefined)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [roleSection, setRoleSection] = useState<RoleSection>('pre')
+  const [activeRole, setActiveRole] = useState('document-title')
+  const visibleGroups = GROUPS[roleSection]
+  const visibleKeys = visibleGroups.flatMap((group) => group.roles)
+  const selectedRole = visibleKeys.includes(activeRole) ? activeRole : visibleKeys[0]
 
   useEffect(() => {
-    setRoles(editableRolesFor(pack))
+    const nextRoles = editableRolesFor(pack)
+    setRoles(nextRoles)
+    setSavedRoles(nextRoles)
     setError(null)
   }, [pack])
 
+  useEffect(() => {
+    if (inspectorRef.current) inspectorRef.current.scrollTop = 0
+  }, [selectedRole, section])
+
+  useEffect(() => {
+    if (!saveNotice) return
+    const timer = window.setTimeout(() => setSaveNotice(''), 4000)
+    return () => window.clearTimeout(timer)
+  }, [saveNotice])
+
+  const hasChanges = JSON.stringify(roles) !== JSON.stringify(savedRoles)
+
+  useEffect(() => {
+    if (reportedDirty.current === hasChanges) return
+    reportedDirty.current = hasChanges
+    onDirtyChange?.(hasChanges)
+  }, [hasChanges, onDirtyChange])
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (disabled || saving || !hasChanges) return
     setSaving(true)
     setError(null)
+    setSaveNotice('')
     try {
       const saved = await reviseStylePack(pack, { name: pack.name, roles })
+      const nextRoles = editableRolesFor(saved)
+      setRoles(nextRoles)
+      setSavedRoles(nextRoles)
+      setSaveNotice(`已保存 · 版本 ${saved.version}`)
       onSaved(saved)
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : '样式保存失败。')
@@ -139,19 +176,16 @@ export function StyleEditor({ disabled, onSaved, pack, section = 'roles' }: Styl
   const isDisabled = disabled || saving
   return (
     <form className="style-editor" onSubmit={handleSubmit}>
-      <div className="style-editor-heading">
-        <h3>编辑样式属性</h3>
-        <span>下次保存为 v{pack.version + 1}</span>
-      </div>
       {section === 'roles' ? (
         <>
+          <div className="style-navigation">
           <div aria-label="样式角色分区" className="role-section-tabs" role="tablist">
             {ROLE_SECTIONS.map((item) => (
               <button
                 aria-selected={roleSection === item.key}
                 className="role-section-tab"
                 key={item.key}
-                onClick={() => setRoleSection(item.key)}
+                onClick={() => { setRoleSection(item.key); setActiveRole(item.key === 'pre' ? 'document-title' : item.key === 'body' ? 'body-paragraph' : 'reference-heading') }}
                 role="tab"
                 type="button"
               >
@@ -159,11 +193,26 @@ export function StyleEditor({ disabled, onSaved, pack, section = 'roles' }: Styl
               </button>
             ))}
           </div>
-          {GROUPS[roleSection].map((group) => (
-            <fieldset className="style-group" key={group.title}>
+          </div>
+          <div className="role-workspace">
+            <nav aria-label="样式目录" className="role-directory">
+              {visibleGroups.map((group) => (
+                <div key={group.title}>
+                  <p>{group.title}</p>
+                  {group.roles.map((key) => (
+                    <button aria-pressed={key === selectedRole} key={key} onClick={() => { setActiveRole(key); if (inspectorRef.current) inspectorRef.current.scrollTop = 0 }} type="button">{ROLE_LABELS[key]}</button>
+                  ))}
+                </div>
+              ))}
+            </nav>
+            <div className="role-inspector" ref={inspectorRef}>
+              <h3 className="role-inspector-heading">{ROLE_LABELS[selectedRole]}</h3>
+          {visibleGroups.map((group) => (
+            <fieldset className="style-group inspector-group" key={group.title}>
               <legend>{group.title}</legend>
               <div className="role-grid">
                 {group.roles.map((roleKey) => (
+                  <div hidden={roleKey !== selectedRole} key={roleKey}>
                   <RoleEditor
                     disabled={isDisabled}
                     key={roleKey}
@@ -171,10 +220,13 @@ export function StyleEditor({ disabled, onSaved, pack, section = 'roles' }: Styl
                     roleKey={roleKey}
                     role={roles[roleKey]}
                   />
+                  </div>
                 ))}
               </div>
             </fieldset>
           ))}
+            </div>
+          </div>
         </>
       ) : null}
       {section === 'page' ? <fieldset className="style-group page-settings">
@@ -196,8 +248,11 @@ export function StyleEditor({ disabled, onSaved, pack, section = 'roles' }: Styl
           ))}
         </div>
       </fieldset> : null}
-      <button className="secondary-action" disabled={isDisabled} type="submit">保存样式新版本</button>
-      {error ? <p className="error-message" role="alert">{error}</p> : null}
+      <div className="style-savebar">
+        {error ? <p className="error-message" role="alert">{error}</p> : null}
+        <span className="style-save-status" role="status">{hasChanges ? '有未保存修改' : !error ? saveNotice : ''}</span>
+        <button className="secondary-action primary-draft-action" disabled={isDisabled || !hasChanges} type="submit">{saving ? '正在保存…' : '保存样式新版本'}</button>
+      </div>
     </form>
   )
 }
@@ -223,13 +278,17 @@ function RoleEditor({
   const lineSpacingValue = lineSpacingRule === 'multiple'
     ? numberValue(paragraph.line_spacing_multiple, 1.5)
     : numberValue(paragraph.line_spacing_pt, 29)
+  const previewSize = previewPositive(font.size_pt, 16)
+  const previewSpacing = previewPositive(lineSpacingValue, lineSpacingRule === 'multiple' ? 1.5 : 29)
+  const previewLineHeight = characterOnly ? 'normal' : lineSpacingRule === 'multiple'
+    ? previewSpacing
+    : `${lineSpacingRule === 'minimum' ? Math.max(previewSize * 1.2, previewSpacing) : lineSpacingRule === 'maximum' ? Math.min(previewSize * 1.2, previewSpacing) : previewSpacing}pt`
   if (role.role_type === 'image') {
     return (
       <article className="role-card">
-        <h4>{label}</h4>
         <div className="style-grid">
           <label>
-            {label}对齐
+            对齐
             <select aria-label={`${label}对齐`} disabled={disabled} onChange={(event) => onChange(['image', 'alignment'], event.target.value)} value={stringValue(image.alignment, 'center')}>
               <option value="left">左对齐</option>
               <option value="center">居中</option>
@@ -237,7 +296,7 @@ function RoleEditor({
             </select>
           </label>
           <label>
-            {label}最大宽度（厘米）
+            最大宽度（厘米）
             <input
               aria-label={`${label}最大宽度（厘米）`}
               disabled={disabled}
@@ -251,7 +310,7 @@ function RoleEditor({
           </label>
           {(['space_before_pt', 'space_after_pt'] as const).map((key) => (
             <label key={key}>
-              {paragraphLabel(label, key)}
+              {paragraphLabel('', key)}
               <input
                 aria-label={paragraphLabel(label, key)}
                 disabled={disabled}
@@ -270,18 +329,17 @@ function RoleEditor({
   }
   return (
     <article className="role-card">
-      <h4>{label}</h4>
       <div className="style-grid">
         <label>
-          {label}中文字体
+          中文字体
           <input aria-label={`${label}中文字体`} disabled={disabled} onChange={(event) => onChange(['font', 'chinese_font'], event.target.value)} value={stringValue(font.chinese_font, '仿宋')} />
         </label>
         <label>
-          {label}西文字体
+          西文字体
           <input aria-label={`${label}西文字体`} disabled={disabled} onChange={(event) => onChange(['font', 'western_font'], event.target.value)} value={stringValue(font.western_font, 'Times New Roman')} />
         </label>
         <label>
-          {label}字号
+          字号
           <select
             aria-label={`${label}字号`}
             disabled={disabled}
@@ -303,6 +361,7 @@ function RoleEditor({
             ))}
           </select>
         </label>
+        <div className="font-options">
         <label className="checkbox-label">
           <input aria-label={`${label}粗体`} checked={booleanValue(font.bold)} disabled={disabled} onChange={(event) => onChange(['font', 'bold'], event.target.checked)} type="checkbox" />
           粗体
@@ -311,10 +370,11 @@ function RoleEditor({
           <input aria-label={`${label}斜体`} checked={booleanValue(font.italic)} disabled={disabled} onChange={(event) => onChange(['font', 'italic'], event.target.checked)} type="checkbox" />
           斜体
         </label>
+        </div>
         {!characterOnly ? (
           <>
             <label>
-              {label}对齐
+              对齐
               <select aria-label={`${label}对齐`} disabled={disabled} onChange={(event) => onChange(['paragraph', 'alignment'], event.target.value)} value={stringValue(paragraph.alignment, 'left')}>
                 <option value="left">左对齐</option>
                 <option value="center">居中</option>
@@ -328,7 +388,7 @@ function RoleEditor({
               return (
                 <div className="measurement-control" key={key}>
                   <label>
-                    {paragraphLabel(label, key)}
+                    {paragraphLabel('', key)}
                     <input
                       aria-label={paragraphLabel(label, key)}
                       disabled={disabled}
@@ -355,7 +415,7 @@ function RoleEditor({
               )
             })}
             <label>
-              {label}行距类型
+              行距类型
               <select
                 aria-label={`${label}行距类型`}
                 disabled={disabled}
@@ -375,7 +435,7 @@ function RoleEditor({
               </select>
             </label>
             <label>
-              {lineSpacingLabel(label, lineSpacingRule)}
+              {lineSpacingLabel('', lineSpacingRule)}
               <input
                 aria-label={lineSpacingLabel(label, lineSpacingRule)}
                 disabled={disabled}
@@ -388,7 +448,7 @@ function RoleEditor({
             </label>
             {(['space_before_pt', 'space_after_pt'] as const).map((key) => (
               <label key={key}>
-                {paragraphLabel(label, key)}
+                {paragraphLabel('', key)}
                 <input
                   aria-label={paragraphLabel(label, key)}
                   disabled={disabled}
@@ -403,8 +463,31 @@ function RoleEditor({
           </>
         ) : null}
       </div>
+      <div className="role-typesetting-preview" aria-label={`${label}文字试排示例`}>
+        <p className="role-typesetting-label">文字试排示例</p>
+        <p className="role-typesetting-sample" style={{
+          fontFamily: `${JSON.stringify(stringValue(font.western_font, 'Times New Roman'))}, ${JSON.stringify(stringValue(font.chinese_font, '仿宋'))}, serif`,
+          fontSize: `${previewSize}pt`,
+          fontWeight: booleanValue(font.bold) ? 'bold' : 'normal',
+          fontStyle: booleanValue(font.italic) ? 'italic' : 'normal',
+          textAlign: characterOnly ? 'left' : stringValue(paragraph.alignment, 'left') as 'left' | 'center' | 'right' | 'justify',
+          lineHeight: previewLineHeight,
+        }}>
+          {roleKey === 'figure-credit' || roleKey === 'table-credit'
+            ? `${label}：张三　2026年10月22日 14:30（示例）`
+            : `${label}示例：春风拂过山野，文字呈现清晰的层次。Sample 2026。`}
+          <br />
+          {roleKey === 'figure-credit' || roleKey === 'table-credit'
+            ? `${label}：李四　2026年10月23日 09:00（示例）`
+            : '第二行示例，用于查看行距与对齐效果。'}
+        </p>
+      </div>
     </article>
   )
+}
+
+function previewPositive(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback
 }
 
 function editableRolesFor(pack: StylePack): RoleMap {
@@ -507,6 +590,8 @@ function defaultRoleMap(): RoleMap {
   roles['heading-4'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 9, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 12, line_spacing_rule: 'minimum' } }
   roles['heading-5'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 7.5, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 12, line_spacing_rule: 'minimum' } }
   roles['heading-6'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Times New Roman', size_pt: 6.5, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, space_before_pt: 5, line_spacing_pt: 12, line_spacing_rule: 'minimum' } }
+  roles['table-credit'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Arial', size_pt: 14 }, paragraph: { ...paragraph, alignment: 'right' } }
+  roles['figure-credit'] = { role_type: 'paragraph', font: { ...font, chinese_font: '黑体', western_font: 'Arial', size_pt: 14 }, paragraph: { ...paragraph, alignment: 'right' } }
   roles['body-table'] = { role_type: 'paragraph', font: { ...font, size_pt: 14 }, paragraph: { ...paragraph, first_line_indent_pt: 0 } }
   roles['table-row-header'] = { ...roles['body-table'], font: { ...font, size_pt: 14, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, alignment: 'left' } }
   roles['table-column-header'] = { ...roles['body-table'], font: { ...font, size_pt: 14, bold: true }, paragraph: { ...paragraph, first_line_indent_pt: 0, alignment: 'center' } }
