@@ -40,6 +40,7 @@ ROLE_KEYS = (
     "image",
     "reference-heading",
     "reference-entry",
+    "code-block",
     "footer",
     "page",
 )
@@ -274,6 +275,19 @@ def default_roles() -> dict[str, dict[str, Any]]:
         "reference-entry": _role(
             font={"chinese_font": "宋体", "western_font": "Times New Roman", "size_pt": 7.5},
             paragraph={"alignment": "justify", "line_spacing_pt": 12, "line_spacing_rule": "minimum"},
+        ),
+        "code-block": _role(
+            font={"chinese_font": "宋体", "western_font": "Consolas", "size_pt": 10.5},
+            paragraph={
+                "alignment": "left",
+                "first_line_indent_pt": 0,
+                "left_indent_pt": 1,
+                "left_indent_unit": "character",
+                "space_before_pt": 0,
+                "space_after_pt": 0,
+                "line_spacing_pt": 14,
+                "line_spacing_rule": "minimum",
+            },
         ),
         "footer": _role(
             font={"chinese_font": "宋体", "western_font": "Times New Roman", "size_pt": 14},

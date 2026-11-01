@@ -39,6 +39,7 @@ const ROLE_LABELS: Record<string, string> = {
   'heading-5': '五级标题',
   'heading-6': '六级标题',
   'body-paragraph': '段落正文',
+  'code-block': '代码块',
   'body-table': '表格正文',
   point: '要点',
   'table-caption': '表格标题',
@@ -67,7 +68,7 @@ const GROUPS: Record<RoleSection, Array<{ title: string; roles: string[] }>> = {
   ],
   body: [
     { title: '标题层级', roles: ['heading-1', 'heading-2', 'heading-3', 'heading-4', 'heading-5', 'heading-6'] },
-    { title: '正文', roles: ['body-paragraph', 'point'] },
+    { title: '正文', roles: ['body-paragraph', 'point', 'code-block'] },
     { title: '表格', roles: ['table-caption', 'table-credit', 'table-row-header', 'table-column-header', 'body-table'] },
     { title: '图片', roles: ['figure-caption', 'figure-credit', 'image'] },
   ],
