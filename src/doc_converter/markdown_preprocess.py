@@ -78,6 +78,14 @@ def preprocess_markdown(
         raise ValueError("Markdown 行号映射必须与输入行数一致。")
     changes: list[dict[str, str | int]] = []
 
+    lines, mapped_lines, closed_comments = _close_unterminated_comments(lines, mapped_lines)
+    if closed_comments:
+        changes.append({"to": "close-html-comment", "count": closed_comments})
+
+    lines, mapped_lines, separated_tables = _separate_table_blocks(lines, mapped_lines)
+    if separated_tables:
+        changes.append({"to": "separate-table-block", "count": separated_tables})
+
     lines, mapped_lines, removed_toc = _remove_toc_lines(lines, mapped_lines)
     if removed_toc:
         changes.append({"to": "remove-toc", "count": removed_toc})
@@ -165,6 +173,99 @@ def remove_toc_sections(text: str) -> tuple[str, int]:
     lines = text.splitlines()
     output, _, removed = _remove_toc_lines(lines, list(range(1, len(lines) + 1)))
     return "\n".join(output), removed
+
+
+_TABLE_ROW_PATTERN = re.compile(r"^\s*\|.*\|\s*$")
+_TABLE_SEPARATOR_PATTERN = re.compile(r"^\s*\|(\s*:?-{2,}:?\s*\|)+\s*$")
+
+
+def _close_unterminated_comments(
+    lines: list[str],
+    line_map: list[int],
+) -> tuple[list[str], list[int], int]:
+    """Close an HTML comment that is opened but never closed.
+
+    Pandoc treats an unterminated comment as running to the end of the file and
+    silently drops every following paragraph. Append the missing ``-->`` at the
+    end of the comment block so the rest of the body survives.
+    """
+
+    output = list(lines)
+    open_at: int | None = None
+    in_fence = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith(("```", "~~~")):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        # An inline code span may legitimately contain ``<!--``.
+        visible = re.sub(r"`[^`]*`", "", line)
+        if open_at is None and "<!--" in visible and "-->" not in visible:
+            open_at = index
+        elif open_at is not None and "-->" in visible:
+            open_at = None
+    if open_at is None:
+        return output, line_map, 0
+    limit = len(output) - 1
+    for position in range(open_at + 1, len(output)):
+        if not output[position].strip():
+            limit = position - 1
+            break
+    output[limit] = output[limit].rstrip() + " -->"
+    return output, line_map, 1
+
+
+def _separate_table_blocks(
+    lines: list[str],
+    line_map: list[int],
+) -> tuple[list[str], list[int], int]:
+    """Insert a blank line between a table and the text around it.
+
+    GFM needs a blank line before a table: a caption line written directly above
+    the first row is otherwise read as part of the header, which turns the whole
+    table into paragraph text. The same goes for the text after the last row.
+    """
+
+    protected = _protected_source_lines(lines)
+    output: list[str] = []
+    output_map: list[int] = []
+    inserted = 0
+    inside_table = False
+    in_fence = False
+    for index, (line, source_line) in enumerate(zip(lines, line_map, strict=True)):
+        stripped = line.strip()
+        if stripped.startswith(("```", "~~~")):
+            in_fence = not in_fence
+            inside_table = False
+            output.append(line)
+            output_map.append(source_line)
+            continue
+        if in_fence:
+            output.append(line)
+            output_map.append(source_line)
+            continue
+        is_separator = bool(_TABLE_SEPARATOR_PATTERN.match(line))
+        is_row = not is_separator and bool(_TABLE_ROW_PATTERN.match(line))
+        is_header = is_row and index + 1 < len(lines) and bool(
+            _TABLE_SEPARATOR_PATTERN.match(lines[index + 1])
+        )
+        if is_header and output and output[-1].strip():
+            output.append("")
+            output_map.append(source_line)
+            inserted += 1
+        if inside_table and stripped and not is_row and not is_separator and index not in protected:
+            output.append("")
+            output_map.append(source_line)
+            inserted += 1
+        if is_row or is_separator:
+            inside_table = True
+        elif stripped:
+            inside_table = False
+        output.append(line)
+        output_map.append(source_line)
+    return output, output_map, inserted
 
 
 def _protected_source_lines(lines: list[str]) -> set[int]:

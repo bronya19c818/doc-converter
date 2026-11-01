@@ -169,6 +169,7 @@ def normalize_markdown(
             output.append(content_lines[index])
             index += 1
     body = _normalize_html_tables("\n".join(output).strip("\n"))
+    body = _escape_pipes_in_table_code_spans(body)
     markdown = _serialize_front_matter(metadata, body)
     integrity = _integrity_inventory(source, markdown)
     integrity["passed"] = integrity["images"] == integrity["normalized_images"] and integrity["links"] == integrity["normalized_links"]
@@ -500,6 +501,123 @@ def _image_destinations(markdown: str) -> list[str]:
             html_parser.close()
             destinations.extend(html_parser.sources)
     return destinations
+
+
+_HTML_INLINE_STYLE = re.compile(
+    r"<(?P<tag>b|strong|i|em|u|s|del|strike|kbd|br|sup|sub|mark|span)(?P<attrs>\s[^>]*)?\s*/?>",
+    re.IGNORECASE,
+)
+_HTML_INLINE_CLOSE = re.compile(
+    r"</(?P<tag>b|strong|i|em|u|s|del|strike|kbd|mark|span)\s*>",
+    re.IGNORECASE,
+)
+_TABLE_ROW_PATTERN = re.compile(r"^\s*\|.*\|\s*$")
+
+
+def _escape_pipes_in_table_code_spans(markdown: str) -> str:
+    """Escape ``|`` inside inline code on table rows so the row keeps its cells.
+
+    GFM splits a pipe table on every unescaped ``|``, including the ones inside
+    a code span, so ``| `x|y` |`` loses a column. The pipe is escaped on table
+    rows only; code spans elsewhere keep the raw character.
+    """
+
+    output: list[str] = []
+    in_fence = False
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("```", "~~~")):
+            in_fence = not in_fence
+            output.append(line)
+            continue
+        if in_fence or not _TABLE_ROW_PATTERN.match(line):
+            output.append(line)
+            continue
+        output.append(_INLINE_CODE_PATTERN.sub(lambda m: m.group(0).replace("|", "\\|"), line))
+    return "\n".join(output)
+
+
+def _normalize_inline_html_style(markdown: str) -> str:
+    """Map simple inline HTML tags onto Markdown's own emphasis syntax.
+
+    Pandoc keeps a raw inline HTML tag as a literal marker and drops it from a
+    DOCX paragraph, so ``<strong>x</strong>`` would lose both the word and its
+    weight. Opening tags become ``**``/``*``/``~~``; ``<u>``, ``<mark>`` and
+    ``<kbd>`` have no Markdown equivalent, so their tags are removed and only
+    the text is kept. ``<br>`` becomes a Pandoc line break. Code spans, fenced
+    blocks and raw HTML tables are never touched.
+    """
+
+    def replace_open(match: re.Match[str]) -> str:
+        tag = match.group("tag").casefold()
+        if tag in {"b", "strong"}:
+            return "**"
+        if tag in {"i", "em"}:
+            return "*"
+        if tag in {"s", "del", "strike"}:
+            return "~~"
+        if tag == "br":
+            return "\\\n"
+        return ""
+
+    def replace_close(match: re.Match[str]) -> str:
+        tag = match.group("tag").casefold()
+        if tag in {"b", "strong"}:
+            return "**"
+        if tag in {"i", "em"}:
+            return "*"
+        if tag in {"s", "del", "strike"}:
+            return "~~"
+        return ""
+
+    output: list[str] = []
+    ordinary: list[str] = []
+    fence: str | None = None
+    in_html_table = False
+
+    def flush() -> None:
+        if not ordinary:
+            return
+        block = "".join(ordinary)
+        code_spans: list[str] = []
+
+        def hold(match: re.Match[str]) -> str:
+            code_spans.append(match.group(0))
+            return f"\x00dc-inline-html-code-{len(code_spans) - 1}\x00"
+
+        transformed = _INLINE_CODE_PATTERN.sub(hold, block)
+        transformed = _HTML_INLINE_STYLE.sub(replace_open, transformed)
+        transformed = _HTML_INLINE_CLOSE.sub(replace_close, transformed)
+        for index, span in enumerate(code_spans):
+            transformed = transformed.replace(f"\x00dc-inline-html-code-{index}\x00", span)
+        output.append(transformed)
+        ordinary.clear()
+
+    for line in markdown.splitlines(keepends=True):
+        stripped = line.strip()
+        marker_match = re.match(r"^\s*(`{3,}|~{3,})", line)
+        if marker_match:
+            flush()
+            marker = marker_match.group(1)
+            if fence is None:
+                fence = marker
+            elif marker[0] == fence[0] and len(marker) >= len(fence):
+                fence = None
+            output.append(line)
+            continue
+        if fence is not None:
+            output.append(line)
+            continue
+        # Raw HTML tables are rewritten by the complex-table channel, which
+        # understands their markup; converting tags here would strip emphasis.
+        if stripped.startswith("<table") or in_html_table:
+            flush()
+            in_html_table = "</table>" not in line
+            output.append(line)
+            continue
+        ordinary.append(line)
+    flush()
+    return "".join(output)
 
 
 def _normalize_html_images(markdown: str) -> str:

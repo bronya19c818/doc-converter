@@ -43,6 +43,7 @@ ROLE_TO_STYLE_ID = {
     "image": "DC_Image",
     "reference-heading": "DC_ReferenceHeading",
     "reference-entry": "DC_ReferenceEntry",
+    "code-block": "DC_CodeBlock",
     "footer": "DC_Footer",
 }
 

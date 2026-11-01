@@ -20,6 +20,7 @@ from doc_converter.normalizer import (
     _normalize_html_images,
     _normalize_html_sub_sup,
     _normalize_html_tables,
+    _normalize_inline_html_style,
     _normalize_metadata,
     normalize_markdown,
 )
@@ -49,6 +50,7 @@ def split_metadata(markdown: str) -> tuple[dict[str, Any], str]:
         raw_metadata, lines, _ = _extract_front_matter(normalized.markdown)
     metadata = _normalize_metadata(raw_metadata)
     body = _join_split_image_syntax("\n".join(lines).strip("\n"))
+    body = _normalize_inline_html_style(body)
     body = _normalize_html_sub_sup(_normalize_html_tables(_normalize_html_images(body)))
     return metadata, body + "\n"
 
@@ -62,6 +64,12 @@ def apply_postprocess(
 ) -> None:
     """Apply semantic style IDs, metadata paragraphs, lists and footers."""
 
+    # A page-break or horizontal-rule marker arrives as its own paragraph; fold
+    # or drop it before roles are queued, so no empty body paragraph is left.
+    _attach_break_paragraphs(document)
+    _drop_rule_paragraphs(document)
+    _style_code_blocks(document)
+    _remove_duplicate_figure_captions(document)
     role_queues: dict[str, deque[str]] = defaultdict(deque)
     for decision in semantic_roles or []:
         text = decision.get("features", {}).get("render_text")
@@ -99,6 +107,131 @@ def apply_postprocess(
     _apply_image_max_width(document, max_image_width_cm)
     _insert_metadata(document, metadata)
     _add_page_footers(document)
+
+
+def _attach_break_paragraphs(document: DocxDocument) -> None:
+    """Fold a paragraph that only carries a page break into the next one.
+
+    Pandoc turns the page-break marker into its own paragraph holding a single
+    break run; left alone it becomes an empty body paragraph after the break.
+    """
+
+    paragraphs = document.paragraphs
+    index = 0
+    while index + 1 < len(paragraphs):
+        current = paragraphs[index]
+        following = paragraphs[index + 1]
+        if (
+            not current.text.strip()
+            and current._p.xpath(".//w:br[@w:type='page']")
+            and not following._p.xpath(".//w:br[@w:type='page']")
+            and not following._p.xpath(".//w:drawing")
+        ):
+            for child in list(current._p):
+                if child.tag == qn("w:pPr"):
+                    continue
+                following._p.insert(0, child)
+            current._p.getparent().remove(current._p)
+            paragraphs = document.paragraphs
+            continue
+        index += 1
+
+
+def _drop_rule_paragraphs(document: DocxDocument) -> None:
+    """Remove the paragraph Pandoc emits for a horizontal rule.
+
+    Pandoc renders ``---`` as a paragraph holding a thin VML rectangle flagged
+    ``o:hr``. Left in place it is an empty body paragraph before the next text.
+    """
+
+    for paragraph in list(document.paragraphs):
+        if paragraph.text.strip():
+            continue
+        is_rule = any(
+            rect.get("{urn:schemas-microsoft-com:office:office}hr") == "t"
+            or rect.get("{urn:schemas-microsoft-com:office:office}hrstd") == "t"
+            for rect in paragraph._p.iter("{urn:schemas-microsoft-com:vml}rect")
+        )
+        if not is_rule:
+            continue
+        if paragraph._p.xpath(".//w:drawing | .//w:object | .//m:oMath"):
+            continue
+        paragraph._p.getparent().remove(paragraph._p)
+
+
+def _style_code_blocks(document: DocxDocument) -> None:
+    """Give Pandoc code paragraphs the code-block role and keep their lines.
+
+    Pandoc emits one ``SourceCode`` paragraph per code line. Mapping them to
+    body text would lose both the code look and the line structure, so the run
+    is joined with line breaks and restyled through the style pack.
+    """
+
+    code_style = ROLE_TO_STYLE_ID["code-block"]
+    paragraphs = document.paragraphs
+    index = 0
+    while index < len(paragraphs):
+        paragraph = paragraphs[index]
+        if not _is_code_paragraph(paragraph):
+            index += 1
+            continue
+        block = [paragraph]
+        following_index = index + 1
+        while following_index < len(paragraphs) and _is_code_paragraph(paragraphs[following_index]):
+            block.append(paragraphs[following_index])
+            following_index += 1
+        first = block[0]
+        for extra in block[1:]:
+            for child in list(extra._p):
+                if child.tag == qn("w:pPr"):
+                    continue
+                first._p.append(child)
+            break_run = OxmlElement("w:r")
+            break_run.append(OxmlElement("w:br"))
+            first._p.append(break_run)
+            extra._p.getparent().remove(extra._p)
+        if len(block) > 1:
+            trailing = first._p.findall(qn("w:r"))[-1]
+            if trailing.find(qn("w:br")) is not None and not (trailing.text or ""):
+                first._p.remove(trailing)
+        first.style = code_style
+        _remove_numbering(first)
+        index = following_index
+    return None
+
+
+def _is_code_paragraph(paragraph: Paragraph) -> bool:
+    style_id = paragraph.style.style_id if paragraph.style is not None else ""
+    if style_id in {"SourceCode", ROLE_TO_STYLE_ID["code-block"]}:
+        return True
+    runs = [run for run in paragraph.runs if run.text.strip()]
+    return bool(runs) and all(
+        run.style is not None and run.style.style_id == "VerbatimChar" for run in runs
+    )
+
+
+def _remove_duplicate_figure_captions(document: DocxDocument) -> None:
+    """Drop a figure caption whose text already appears right before it.
+
+    A missing picture leaves Pandoc with a paragraph holding only the alt text
+    directly above the explicit caption line; both read as the same caption, so
+    the first one is removed.
+    """
+
+    paragraphs = document.paragraphs
+    for index in range(len(paragraphs) - 1, 0, -1):
+        current = paragraphs[index]
+        previous = paragraphs[index - 1]
+        if not _FIGURE_CAPTION_PATTERN.match(current.text):
+            continue
+        if not _FIGURE_CAPTION_PATTERN.match(previous.text):
+            continue
+        if re.sub(r"\s+", "", current.text) != re.sub(r"\s+", "", previous.text):
+            continue
+        if previous._p.xpath(".//w:drawing | .//w:pict | .//w:object") or _has_numbering(previous):
+            continue
+        previous._p.getparent().remove(previous._p)
+        paragraphs = document.paragraphs
 
 
 def _style_table_cells(table: Any) -> None:
